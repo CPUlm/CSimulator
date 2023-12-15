@@ -6,11 +6,10 @@ tests: netlist_simulator.byte
 	@./run_tests.sh
 
 
-miniTest: netlist_simulator.byte
+run: netlist_simulator.byte
 	./simulator.sh -n 5 test.net
 
 all: netlist_simulator.byte
-
 
 	
 clean:
