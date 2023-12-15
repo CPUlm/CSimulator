@@ -1,0 +1,9 @@
+INPUT a,b
+OUTPUT c,d,e,f
+VAR
+  a , b, c,d,e,f
+IN
+c = NOT a
+d = AND a b
+e = NAND a b
+f = OR a b

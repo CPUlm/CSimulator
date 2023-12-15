@@ -1,0 +1,17 @@
+INPUT
+OUTPUT u, v, w, x
+VAR
+	a,b,c,qqch,uInit, vInit, wInit, xInit, u,v,w,x
+IN
+a = REG u
+b = REG v
+c = REG w
+qqch = OR b c
+uInit = ROM 1 1 0
+vInit = ROM 1 1 0
+wInit = ROM 1 1 0
+xInit = ROM 1 1 0
+u = MUX qqch uInit 0
+v = MUX qqch vInit a
+w = MUX qqch wInit b
+x = MUX qqch xInit c

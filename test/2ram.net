@@ -1,0 +1,7 @@
+INPUT
+OUTPUT o, a
+VAR
+  a:2, o:2
+IN
+a = RAM 2 2 01 1 01 11
+o = RAM 3 2 01 0 00 00

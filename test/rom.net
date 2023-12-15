@@ -1,0 +1,6 @@
+INPUT i
+OUTPUT o
+VAR
+  i:2, o:3
+IN
+o = ROM 2 3 i

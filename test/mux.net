@@ -1,0 +1,6 @@
+INPUT a,b,c
+OUTPUT d
+VAR
+  a , b, c, d
+IN
+d = MUX a b c

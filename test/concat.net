@@ -1,0 +1,7 @@
+INPUT a,b
+OUTPUT c
+VAR
+  a : 3, b : 2, c : 5
+IN
+c = CONCAT a b
+

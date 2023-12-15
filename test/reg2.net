@@ -1,0 +1,8 @@
+INPUT 
+OUTPUT a, b, c
+VAR
+  a, b, c
+IN
+a = REG b
+b = NOT a
+c = b

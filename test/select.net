@@ -1,0 +1,11 @@
+INPUT a
+OUTPUT b, c, d, e, f
+VAR
+  a : 5, b, c, d, e, f
+IN
+b = SELECT 0 a
+c = SELECT 1 a
+d = SELECT 2 a
+e = SELECT 3 a
+f = SELECT 4 a
+

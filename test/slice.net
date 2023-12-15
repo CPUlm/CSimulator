@@ -1,0 +1,9 @@
+INPUT a
+OUTPUT b, c, d
+VAR
+  a : 5, b : 2, c : 5, d : 3
+IN
+b = SLICE 1 2 a
+c = SLICE 0 4 a
+d = SLICE 2 4 a
+

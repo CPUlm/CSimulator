@@ -1,0 +1,9 @@
+INPUT
+OUTPUT c
+VAR
+  a : 3, b, c : 6
+IN
+a = 011
+b = SELECT 1 a
+c = CONCAT b 00101
+
