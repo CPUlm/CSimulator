@@ -49,7 +49,7 @@ let to_c p nbSteps =
 	let from_arg = function
 			| Avar ident -> varPrefix ^ ident ^ ".calcGate()"
 			| Aconst (VBit b) -> if b then "1" else "0"
-			| Aconst (VBitArray a) -> (Array.fold_left (fun s b -> if b then "1"^s else "0"^s) "" a)^"u"
+			| Aconst (VBitArray a) -> "0b"^(Array.fold_left (fun s b -> if b then "1"^s else "0"^s) "" a)^"u"
 	in
 	let gateSize ident =
 		let t = Env.find ident p.p_vars in
