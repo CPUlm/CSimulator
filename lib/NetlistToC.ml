@@ -1,11 +1,6 @@
 open Ast
 module SSet = Set.Make (String)
 
-let varPrefix = "var_"
-
-let fctPrefix = "fct_"
-
-let memPrefix = "mem_"
 
 let pp_fct ppf ram = Format.fprintf ppf "fct_%s" ram
 
@@ -83,29 +78,29 @@ let pp_mem_def ppf (ident, exp) =
 let pp_read_rom ppf (ident, exp) =
   match exp with
   | Erom (_, _, _) ->
-      Format.fprintf ppf "%a = rom_create(NULL, 0);\n" pp_rom ident
+      Format.fprintf ppf "%a = rom_create(NULL, 0);@." pp_rom ident
   | _ ->
       ()
 
 let pp_write_ram ppf (ident, exp) =
   match exp with
   | Eram (_, _, _, we, wa, data) ->
-      Format.fprintf ppf "ram_write(%a, %a, %a, %a);\n" pp_ram ident pp_arg we
+      Format.fprintf ppf "ram_write(%a, %a, %a, %a);@." pp_ram ident pp_arg we
         pp_arg wa pp_arg data
   | _ ->
       ()
 
 let pp_input ppf ident =
-  Format.fprintf ppf "/* TODO: reading %a */\n" pp_var ident
+  Format.fprintf ppf "/* TODO: reading %a */@." pp_var ident
 
 let pp_output ppf ident =
-  Format.fprintf ppf "/* TODO: outputting %a */\n" pp_var ident
+  Format.fprintf ppf "/* TODO: outputting %a */@." pp_var ident
 
-let pp_calc ppf ident = Format.fprintf ppf "reg_calc(&%a);\n" pp_var ident
+let pp_calc ppf ident = Format.fprintf ppf "reg_calc(&%a);@." pp_var ident
 
 let pp_init regs ppf (ident, _) =
-  if SSet.mem ident regs then Format.fprintf ppf "reg_init(&%a);\n" pp_var ident
-  else Format.fprintf ppf "gate_init(&%a);\n" pp_var ident
+  if SSet.mem ident regs then Format.fprintf ppf "reg_init(&%a);@." pp_var ident
+  else Format.fprintf ppf "gate_init(&%a);@." pp_var ident
 
 let pp_list pp ppf l = List.iter (fun x -> pp ppf x) l
 
@@ -129,10 +124,10 @@ let search_replace text pattern repl =
 (** Generates the C code that simulates a single cycle of the Netlist [p]. *)
 let generate_cycle_body p regs =
   Format.asprintf
-    "%a/* Inputs: */\n\
-     %a/* Simulating the Netlist: */\n\
-     %a/* Flushing writes to RAM: */\n\
-     %a/* Outputs: */\n\
+    "%a/* Inputs: */@.\
+     %a/* Simulating the Netlist: */@.\
+     %a/* Flushing writes to RAM: */@.\
+     %a/* Outputs: */@.\
      %a"
     (pp_list (pp_init regs))
     p.p_eqs (pp_list pp_input) p.p_inputs (pp_list pp_calc) (SSet.elements regs)
@@ -147,7 +142,7 @@ let to_c p nbSteps =
   in
   let v1 = search_replace template "$NB_STEPS$" (string_of_int nbSteps) in
   let memDef =
-    Format.asprintf "/* Registered memory blocks (RAM and ROM): */\n%a"
+    Format.asprintf "/* Registered memory blocks (RAM and ROM): */\n.%a"
       (pp_list pp_mem_def) p.p_eqs
   in
   let v1Bis = search_replace v1 "$MEM_DEF$" memDef in
