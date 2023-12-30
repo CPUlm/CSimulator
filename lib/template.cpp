@@ -4,131 +4,67 @@
  */
 
 #include <stdio.h>
-#include <cstdint>
-#include <vector>
+#include <stdint.h>
 #include <inttypes.h>
-
-const long long nbSteps = $NB_STEPS$;
-
-class Gate {
-    bool isCalculated;
-    uint32_t value;
-    uint32_t (*fct) ();
-
-public:
-    bool mustBeCalculated;
-
-    uint32_t calcGate()	{
-        if (!isCalculated)	{
-            value = fct();
-            isCalculated = true;
-        }
-        return value;
-    }
-
-    void init()	{
-        isCalculated = false;
-    }
-    
-    Gate(bool isOutput_) {
-        mustBeCalculated = isOutput_;
-        value = 0;
-    }
-
-    void setFct( uint32_t (*f) () )	{
-        fct = f;
-    }
-
-    void readInput(int size)	{
-        value = 0;
-        for (int i = 0; i < size; i++)	{
-            char cara;
-            scanf(" %c", &cara);
-            if (cara == '1')
-                value |= (1 << i);
-        }
-        isCalculated = true;
-    }
-
-    void show(int size)	{
-        uint32_t copyVal = calcGate();
-        for (int i = 0; i < size; i++)	{
-            if (copyVal & (1<<i)) printf("1");
-            else printf("0");
-        }
-    }
-};
-
-class GateReg {
-    bool isCalculated;
-    uint32_t value [2];
-    uint32_t (*fct) ();
-
-public:
-    bool mustBeCalculated;
-
-    uint32_t calcGate()	{
-        if (!isCalculated)	{
-            value[0] = fct();
-            isCalculated = true;
-        }
-        return value[0];
-    }
-
-    uint32_t getOldValue()	{
-        return value[1];
-    }
-
-    void init()	{
-        isCalculated = false;
-        value[1] = value[0];
-    }
-
-    GateReg(bool isOutput_) {
-        mustBeCalculated = true;
-        value[0] = 0;
-        value[1] = 0;
-    }
-
-    void setFct( uint32_t (*f) () )	{
-        fct = f;
-    }
-
-    void readInput(int size)	{
-        value[0] = 0;
-        for (int i = 0; i < size; i++)	{
-            char cara;
-            scanf(" %c", &cara);
-            if (cara == '1')
-                value[0] |= (1 << i);
-        }
-        isCalculated = true;
-    }
-
-    void show(int size)	{
-        uint32_t copyVal = calcGate();
-        for (int i = 0; i < size ; i++)	{
-            if (copyVal & (1<<i))	printf("1");
-            else	printf("0");
-        }
-    }
-};
+#include <stdbool.h>
 
 #include "memory.h"
 
-class Memory {
-private:
-    ram_t* m_ram;
-    
-public:
-    uint32_t get(uint32_t addr)	{
-        return ram_get(m_ram, addr);
+const long long nbSteps = $NB_STEPS$;
+
+typedef struct gate_t
+{
+    word_t (*fct)();
+    word_t value;
+    bool is_calculated;
+} gate_t;
+
+static inline void gate_init(gate_t *gate) {
+    gate->is_calculated = false;
+    gate->value = 0;
+}
+
+static inline word_t gate_calc(gate_t *gate)
+{
+    if (!gate->is_calculated)
+    {
+        gate->value = gate->fct();
+        gate->is_calculated = true;
     }
 
-    void set(uint32_t addr, uint32_t val) {
-        ram_set(m_ram, addr, val);
+    return gate->value;
+}
+
+typedef struct reg_t
+{
+    uint32_t (*fct)();
+    word_t value;
+    word_t old_value;
+    bool is_calculated;
+} reg_gate_t;
+
+static inline void reg_init(reg_gate_t *gate) {
+    gate->is_calculated = false;
+    gate->value = 0;
+    gate->old_value = gate->value;
+}
+
+static inline word_t reg_calc(reg_gate_t *gate)
+{
+    if (!gate->is_calculated)
+    {
+        gate->value = gate->fct();
+        gate->is_calculated = true;
     }
-};
+
+    return gate->value;
+}
+
+static inline void ram_write(ram_t *ram, int write_enabled, addr_t addr, word_t value)
+{
+    if (write_enabled)
+        ram_set(ram, addr, value);
+}
 
 $MEM_DEF$
 
@@ -136,22 +72,15 @@ $GATE_DEF$
 
 $FCT_DEF$
 
-int main()	{
-$FCT_SET$
+int main()
+{
+    $FCT_SET$
 
-$READ_ROM$
+    $READ_ROM$
 
-    for (long long iStep = 0; iStep != nbSteps; iStep++)	{
-        printf("Step %lld:\n", iStep+1);
-
-$INIT$
-
-$INPUT$
-
-$CALC$
-
-$WRITE_RAM$
-
-$OUTPUT$
+    for (unsigned long long iStep = 0; iStep != nbSteps; iStep++)
+    {
+        printf("Step %lld:\n", iStep + 1);
+        $CYCLE$
     }
 }
