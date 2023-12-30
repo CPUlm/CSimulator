@@ -1,5 +1,5 @@
 %{
- open Netlist_ast
+ open Ast
 
  let bool_of_string s = match s with
   | "t" | "1" -> true
@@ -31,7 +31,7 @@
 %token EOF
 
 %start program             /* the entry point */
-%type <Netlist_ast.program> program
+%type <Ast.program> program
 
 %%
 program:

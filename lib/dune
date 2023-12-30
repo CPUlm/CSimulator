@@ -1,0 +1,8 @@
+(library
+ (name LibCNetlistSimulator))
+
+(ocamllex
+ (modules Lexer))
+
+(menhir
+ (modules Parser))

@@ -1,6 +1,5 @@
 {
-open Lexing
-open Netlist_parser
+open Parser
 exception Eof
 
 let keyword_list =
@@ -27,7 +26,7 @@ let keyword_list =
 
 rule token = parse
     '\n'
-      { new_line lexbuf; token lexbuf }     (* skip blanks *)
+      { Lexing.new_line lexbuf; token lexbuf }     (* skip blanks *)
   | [' ' '\t']
       { token lexbuf }     (* skip blanks *)
   | '#' [^ '\n']*
