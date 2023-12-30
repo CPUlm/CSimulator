@@ -29,13 +29,13 @@ word_t ram_get_set(ram_t* ram, addr_t addr, word_t value);
  * ROM abstraction.
  */
 
-typedef word_t rom_t;
+typedef struct rom_t { const word_t* data; } rom_t;
 
 /** Creates a ROM block with the given initial @a data of length @a data_len. */
-const rom_t *rom_create(const word_t *data, size_t data_len);
+rom_t rom_create(const word_t *data, size_t data_len);
 /** Destroys the given @a rom block. */
-void rom_destroy(const rom_t *rom);
+void rom_destroy(rom_t rom);
 /** Gets the word at the given @a addr of the given @a rom block. */
-static inline word_t rom_get(const rom_t *rom, addr_t addr) { return rom[addr]; }
+static inline word_t rom_get(rom_t rom, addr_t addr) { return rom.data[addr]; }
 
 #endif // !CPULM_MEMORY_MAPPING_H

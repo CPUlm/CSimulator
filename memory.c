@@ -234,16 +234,19 @@ word_t ram_get_set(ram_t *ram, addr_t addr, word_t value)
  * value must fit in the real memory, so no need to be smart here:
  * we just use a raw array to represent the RAM. */
 
-const rom_t *rom_create(const word_t *data, size_t data_len)
+rom_t rom_create(const word_t *data, size_t data_len)
 {
-    rom_t *rom = (rom_t *)malloc(sizeof(word_t) * data_len);
-    assert(rom != NULL);
+    word_t *rom_data = (word_t *)malloc(sizeof(word_t) * data_len);
+    assert(rom_data != NULL);
 
-    memcpy(rom, data, sizeof(word_t) * data_len);
+    memcpy(rom_data, data, sizeof(word_t) * data_len);
+
+    rom_t rom;
+    rom.data = rom_data;
     return rom;
 }
 
-void rom_destroy(const rom_t *rom)
+void rom_destroy(rom_t rom)
 {
-    free((rom_t*)rom);
+    free((word_t*)rom.data);
 }
