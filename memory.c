@@ -1,6 +1,7 @@
 #include "memory.h"
 
 #include <string.h>
+#include <assert.h>
 
 /*
  * RAM abstraction.
@@ -26,7 +27,7 @@
 // in case of unsupported platform, so this is not too bad.
 
 // We need to detect POSIX (to know if we can include <unistd.h>).
-// GCC defins __unix__ on most POSIX systems except the Apple ones.
+// GCC defines __unix__ on most POSIX systems except the Apple ones.
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 #define IS_POSIX 1
 #else
@@ -61,7 +62,7 @@ typedef struct ram_page_t
 
 struct ram_t
 {
-    ram_page_t *pages;
+    ram_page_t *buckets;
     // page_count must always be a power of 2.
     addr_t bucket_count;
     addr_t page_count;
@@ -69,6 +70,17 @@ struct ram_t
     // Size, in bytes, of a RAM's page size.
     addr_t page_size;
 };
+
+// Hash the given integer to have a better distribution.
+addr_t hash(addr_t x)
+{
+    // From https://stackoverflow.com/a/12996028
+    // addr_t is assumed to be 32-bits
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = (x >> 16) ^ x;
+    return x;
+}
 
 // Implements a hash table lookup where buckets and bucket_count is the hash table's
 // bucket array and base_addr is the key. The function returns the index where the
@@ -100,26 +112,28 @@ static addr_t ht_find(ram_page_t *buckets, addr_t bucket_count, addr_t base_addr
     return index;
 }
 
+static void init_ram_page(ram_t *ram, ram_page_t *page, addr_t base_addr)
+{
+    page->base_addr = base_addr;
+    page->data = (word_t *)malloc(ram->page_size);
+    assert(page->data != NULL);
+}
+
 ram_t *ram_create()
 {
     ram_t *ram = (ram_t *)malloc(sizeof(ram_t));
-    if (ram == NULL)
-        return NULL; // failed to allocate memory
+    assert(ram != NULL);
 
     // Precompute the RAM's page size.
     ram->page_size = get_os_memory_page();
 
-    ram->pages = (ram_page_t *)calloc(INITIAL_RAM_HT_SIZE, sizeof(ram_page_t));
+    ram->buckets = (ram_page_t *)calloc(INITIAL_RAM_HT_SIZE, sizeof(ram_page_t));
+    assert(ram->buckets != NULL);
     ram->bucket_count = INITIAL_RAM_HT_SIZE;
     ram->page_count = 1;
-    if (ram->pages == NULL)
-    {
-        free(ram);
-        return NULL; // failed to allocate memory
-    }
 
     // Initialize the first memory's page (the region [0..PAGE_SIZE]).
-    init_ram_page(ram, &ram->pages[ht_find(ram->pages, ram->bucket_count, 0)], 0);
+    init_ram_page(ram, &ram->buckets[ht_find(ram->buckets, ram->bucket_count, 0)], 0);
 
     return ram;
 }
@@ -132,30 +146,12 @@ void ram_destroy(ram_t *ram)
     for (addr_t i = 0; i < ram->bucket_count; ++i)
     {
         // free() is well defined on NULL pointers, so we don't need to check
-        // if ram->pages[i] is a used page or NULL one.
-        free(ram->pages[i].data);
+        // if ram->buckets[i] is a used page or NULL one.
+        free(ram->buckets[i].data);
     }
 
-    free(ram->pages);
+    free(ram->buckets);
     free(ram);
-}
-
-static void init_ram_page(ram_t *ram, ram_page_t *page, addr_t base_addr)
-{
-    page->base_addr = base_addr;
-    page->data = (word_t *)malloc(ram->page_size);
-    assert(page->data != NULL);
-}
-
-// Hash the given integer to have a better distribution.
-addr_t hash(addr_t x)
-{
-    // From https://stackoverflow.com/a/12996028
-    // addr_t is assumed to be 32-bits
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = (x >> 16) ^ x;
-    return x;
 }
 
 // Returns the memory's page corresponding to the given addr. This effectively
@@ -167,11 +163,11 @@ static ram_page_t *get_ram_page(ram_t *ram, addr_t addr)
     const addr_t base_addr = addr & ~(ram->page_size - 1);
 
     // Try to find a corresponding memory's page.
-    addr_t index = ht_find(ram->pages, ram->bucket_count, base_addr);
-    if (ram->pages[index].base_addr = base_addr)
+    addr_t index = ht_find(ram->buckets, ram->bucket_count, base_addr);
+    if (ram->buckets[index].base_addr == base_addr)
     {
         // We found one!
-        return &ram->pages[index];
+        return &ram->buckets[index];
     }
 
     // We failed to find the corresponding memory's page. Now, let's create it.
@@ -183,12 +179,13 @@ static ram_page_t *get_ram_page(ram_t *ram, addr_t addr)
         addr_t old_bucket_count = ram->bucket_count;
         ram->bucket_count *= 2;
         ram_page_t *new_pages = (ram_page_t *)malloc(sizeof(ram_page_t) * ram->bucket_count);
-
+        assert(new_pages != NULL);
+        
         // Rehash the table (we just reinsert individually each of the previous memory pages
         // into the new hash table).
         for (addr_t i = 0; i < old_bucket_count; ++i)
         {
-            ram_page_t *page = ram->pages + i;
+            ram_page_t *page = ram->buckets + i;
             if (page->data != NULL)
             {
                 new_pages[ht_find(new_pages, ram->bucket_count, page->base_addr)] = *page;
@@ -196,14 +193,14 @@ static ram_page_t *get_ram_page(ram_t *ram, addr_t addr)
         }
 
         // And finally, free and swap the old bucket array and the new one.
-        free(ram->pages);
-        ram->pages = new_pages;
+        free(ram->buckets);
+        ram->buckets = new_pages;
     }
 
-    init_ram_page(ram, &ram->pages[index], base_addr);
+    init_ram_page(ram, &ram->buckets[index], base_addr);
     ram->page_count += 1;
 
-    return &ram->pages[index];
+    return &ram->buckets[index];
 }
 
 word_t ram_get(ram_t *ram, addr_t addr)
@@ -239,9 +236,8 @@ word_t ram_get_set(ram_t *ram, addr_t addr, word_t value)
 
 const rom_t *rom_create(const word_t *data, size_t data_len)
 {
-    rom_t *rom = (const rom_t *)malloc(sizeof(word_t) * data_len);
-    if (rom == NULL)
-        return NULL; // failed to allocate memory
+    rom_t *rom = (rom_t *)malloc(sizeof(word_t) * data_len);
+    assert(rom != NULL);
 
     memcpy(rom, data, sizeof(word_t) * data_len);
     return rom;
@@ -249,5 +245,5 @@ const rom_t *rom_create(const word_t *data, size_t data_len)
 
 void rom_destroy(const rom_t *rom)
 {
-    free(rom);
+    free((rom_t*)rom);
 }
