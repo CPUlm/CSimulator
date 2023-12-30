@@ -2,13 +2,10 @@
 
 red='\033[0;31m'
 noColor='\033[0m'
-for netFile in test/*.net
-do
-	echo $netFile;
-	for inFile in test/*.in
-	do
-		if [ ${inFile%%.*} = ${netFile%%.*} ]
-		then
+for netFile in test/*.net; do
+	echo $netFile
+	for inFile in test/*.in; do
+		if [ ${inFile%%.*} = ${netFile%%.*} ]; then
 			echo "-   $inFile"
 			echo -en "${red}"
 			n=$(head -n 1 $inFile)
@@ -17,3 +14,4 @@ do
 			echo -en "${noColor}"
 		fi
 	done
+done
