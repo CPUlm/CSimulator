@@ -105,7 +105,7 @@ let pp_init regs ppf (ident, _) =
 let pp_list pp ppf l = List.iter (fun x -> pp ppf x) l
 
 let template =
-  let ch = open_in_bin "lib/template.cpp" in
+  let ch = open_in_bin "lib/template.c" in
   let s = really_input_string ch (in_channel_length ch) in
   close_in ch ; s
 
