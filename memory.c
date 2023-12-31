@@ -1,7 +1,14 @@
 #include "memory.h"
 
 #include <string.h>
-#include <assert.h>
+#include <stdio.h>
+
+static void check_alloc(void* ptr) {
+    if (ptr == NULL) {
+        fprintf(stderr, "fatal error: out of memory (failed allocation)");
+        abort();
+    }
+}
 
 /*
  * RAM abstraction.
@@ -116,19 +123,19 @@ static void init_ram_page(ram_t *ram, ram_page_t *page, addr_t base_addr)
 {
     page->base_addr = base_addr;
     page->data = (word_t *)malloc(ram->page_size);
-    assert(page->data != NULL);
+    check_alloc(page->data);
 }
 
 ram_t *ram_create()
 {
     ram_t *ram = (ram_t *)malloc(sizeof(ram_t));
-    assert(ram != NULL);
+    check_alloc(ram);
 
     // Precompute the RAM's page size.
     ram->page_size = get_os_memory_page();
 
     ram->buckets = (ram_page_t *)calloc(INITIAL_RAM_HT_SIZE, sizeof(ram_page_t));
-    assert(ram->buckets != NULL);
+    check_alloc(ram->buckets);
     ram->bucket_count = INITIAL_RAM_HT_SIZE;
     ram->page_count = 1;
 
@@ -179,7 +186,7 @@ static ram_page_t *get_ram_page(ram_t *ram, addr_t addr)
         addr_t old_bucket_count = ram->bucket_count;
         ram->bucket_count *= 2;
         ram_page_t *new_pages = (ram_page_t *)malloc(sizeof(ram_page_t) * ram->bucket_count);
-        assert(new_pages != NULL);
+        check_alloc(new_pages);
         
         // Rehash the table (we just reinsert individually each of the previous memory pages
         // into the new hash table).
@@ -237,7 +244,7 @@ word_t ram_get_set(ram_t *ram, addr_t addr, word_t value)
 rom_t rom_create(const word_t *data, size_t data_len)
 {
     word_t *rom_data = (word_t *)malloc(sizeof(word_t) * data_len);
-    assert(rom_data != NULL);
+    check_alloc(rom_data);
 
     memcpy(rom_data, data, sizeof(word_t) * data_len);
 
