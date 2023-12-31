@@ -7,10 +7,11 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "memory.h"
 
-const long long nbSteps = $NB_STEPS$;
+const unsigned long long nbSteps = $NB_STEPS$;
 
 typedef struct gate_t
 {
@@ -19,7 +20,8 @@ typedef struct gate_t
     bool is_calculated;
 } gate_t;
 
-static inline void gate_init(gate_t *gate) {
+static inline void gate_init(gate_t *gate)
+{
     gate->is_calculated = false;
     gate->value = 0;
 }
@@ -41,15 +43,16 @@ typedef struct reg_t
     word_t value;
     word_t old_value;
     bool is_calculated;
-} reg_gate_t;
+} reg_t;
 
-static inline void reg_init(reg_gate_t *gate) {
+static inline void reg_init(reg_t *gate)
+{
     gate->is_calculated = false;
     gate->value = 0;
     gate->old_value = gate->value;
 }
 
-static inline word_t reg_calc(reg_gate_t *gate)
+static inline word_t reg_calc(reg_t *gate)
 {
     if (!gate->is_calculated)
     {
@@ -72,11 +75,44 @@ $GATE_DEF$
 
 $FCT_DEF$
 
-int main()
+/** Returns true if @a s ends with @a t (equivalently if @a t is a suffix of @a s). */
+static int strendswith(const char *s, const char *t)
 {
+    size_t slen = strlen(s);
+    size_t tlen = strlen(t);
+    if (tlen > slen) return 1;
+    return strcmp(s + slen - tlen, t);
+}
+
+int main(int argc, char *argv[])
+{
+    size_t ram_file_count = 0, rom_file_count = 0;
+    const char **ram_files = malloc(sizeof(const char *) * (argc - 1));
+    const char **rom_files = malloc(sizeof(const char *) * (argc - 1));
+    check_alloc(ram_files);
+    check_alloc(rom_files);
+    for (int i = 1; i < argc; ++i)
+    {
+        if (argv[i][0] != '-')
+        {
+            if (strendswith(argv[i], ".do") || strendswith(argv[i], ".ram") || strendswith(argv[i], ".data")) {
+                ram_files[ram_file_count++] = argv[i];
+            } else if (strendswith(argv[i], ".po") || strendswith(argv[i], ".rom") || strendswith(argv[i], ".code")) {
+                rom_files[rom_file_count++] = argv[i];
+            } else {
+                fprintf(stderr, "error: unknown type for file '%s'\n", argv[i]);
+            }
+        } else {
+            fprintf(stderr, "error: unknown option '%s'\n", argv[i]);
+        }
+    }
+
     $FCT_SET$
 
     $READ_ROM$
+
+    free(ram_files);
+    free(rom_files);
 
     for (unsigned long long iStep = 0; iStep != nbSteps; iStep++)
     {

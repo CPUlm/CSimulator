@@ -3,9 +3,9 @@
 #include <string.h>
 #include <stdio.h>
 
-static void check_alloc(void* ptr) {
+void check_alloc(void* ptr) {
     if (ptr == NULL) {
-        fprintf(stderr, "fatal error: out of memory (failed allocation)");
+        fprintf(stderr, "fatal error: out of memory (failed allocation)\n");
         abort();
     }
 }

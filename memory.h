@@ -8,6 +8,9 @@
 typedef uint32_t word_t;
 typedef uint32_t addr_t;
 
+/** Checks if the given @a ptr is not NULL. If it is, dumps an error message and abort. */
+void check_alloc(void* ptr);
+
 /*
  * RAM abstraction.
  */
