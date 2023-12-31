@@ -1,7 +1,6 @@
 open Ast
 module SSet = Set.Make (String)
 
-
 let pp_fct ppf ram = Format.fprintf ppf "fct_%s" ram
 
 let pp_ram ppf ram = Format.fprintf ppf "ram_%s" ram
@@ -14,11 +13,12 @@ let pp_arg ppf = function
   | Avar ident ->
       Format.fprintf ppf "gate_calc(&%a)" pp_var ident
   | Aconst (VBit b) ->
-      Format.fprintf ppf "0b%du" (Bool.to_int b)
+      Format.fprintf ppf "%#xu" (Bool.to_int b)
   | Aconst (VBitArray a) ->
-      Format.fprintf ppf "0b" ;
-      Array.iter (fun b -> Format.fprintf ppf "%d" (Bool.to_int b)) a ;
-      Format.fprintf ppf "u"
+      let value =
+        Array.fold_left (fun result bit -> (result lsl 1) + Bool.to_int bit) 0 a
+      in
+      Format.fprintf ppf "%#xu" value
 
 let gateSize p ident =
   let t = Env.find ident p.p_vars in
@@ -66,19 +66,33 @@ let pp_fct_def p ppf (ident, exp) =
   Format.fprintf ppf "static word_t %a() { return %a; }\n" pp_fct ident
     (pp_inst p ident) exp
 
+let pp_gate_def regs ppf (ident, _) =
+  if SSet.mem ident regs then Format.fprintf ppf "reg_t %a;\n" pp_var ident
+  else Format.fprintf ppf "static gate_t %a;\n" pp_var ident
+
 let pp_mem_def ppf (ident, exp) =
   match exp with
   | Eram _ ->
-      Format.fprintf ppf "ram_t* %a = ram_create();\n" pp_ram ident
+      Format.fprintf ppf "static ram_t* %a = NULL;\n" pp_ram ident
   | Erom _ ->
-      Format.fprintf ppf "const rom_t* %a = NULL;\n" pp_rom ident
+      Format.fprintf ppf "static rom_t %a = { NULL };\n" pp_rom ident
   | _ ->
       ()
 
 let pp_read_rom ppf (ident, exp) =
   match exp with
-  | Erom (_, _, _) ->
-      Format.fprintf ppf "%a = rom_create(NULL, 0);@." pp_rom ident
+  | Eram _ ->
+      Format.fprintf ppf
+        "if (cur_ram_file_idx < ram_file_count)@.{ %a = \
+         ram_from_file(ram_files[cur_ram_file_idx++]); }@.else@.{ %a = \
+         ram_create(); }@."
+        pp_ram ident pp_ram ident
+  | Erom _ ->
+      Format.fprintf ppf
+        "if (cur_rom_file_idx < rom_file_count)@.{ %a = \
+         rom_from_file(rom_files[cur_rom_file_idx++]); }@.else@.{ \
+         fprintf(stderr, \"error: missing a rom file\\n\"); abort(); }@."
+        pp_rom ident
   | _ ->
       ()
 
@@ -95,6 +109,9 @@ let pp_input ppf ident =
 
 let pp_output ppf ident =
   Format.fprintf ppf "/* TODO: outputting %a */@." pp_var ident
+
+let pp_fct_set ppf (ident, _) =
+  Format.fprintf ppf "%a.fct = &%a;@." pp_var ident pp_fct ident
 
 let pp_calc ppf ident = Format.fprintf ppf "reg_calc(&%a);@." pp_var ident
 
@@ -121,54 +138,36 @@ let search_replace text pattern repl =
   done ;
   !result
 
+let generate_definitions p regs =
+  Format.asprintf
+    "/* Memory blocks (RAM and ROM): */@.%a/* Gates: */@.%a/* Functions: */@.%a"
+    (pp_list pp_mem_def) p.p_eqs
+    (pp_list (pp_gate_def regs))
+    (Env.bindings p.p_vars)
+    (pp_list (pp_fct_def p))
+    p.p_eqs
+
+let generate_init p =
+  Format.asprintf "/* Set functions. */@.%a/* Initialize RAM and ROM: */@.%a"
+    (pp_list pp_fct_set) p.p_eqs (pp_list pp_read_rom) p.p_eqs
+
 (** Generates the C code that simulates a single cycle of the Netlist [p]. *)
 let generate_cycle_body p regs =
   Format.asprintf
-    "%a/* Inputs: */@.\
-     %a/* Simulating the Netlist: */@.\
-     %a/* Flushing writes to RAM: */@.\
-     %a/* Outputs: */@.\
-     %a"
+    "%a/* Inputs: */@.%a/* Simulating the Netlist: */@.%a/* Flushing writes to \
+     RAM: */@.%a/* Outputs: */@.%a"
     (pp_list (pp_init regs))
     p.p_eqs (pp_list pp_input) p.p_inputs (pp_list pp_calc) (SSet.elements regs)
     (pp_list pp_write_ram) p.p_eqs (pp_list pp_output) p.p_outputs
 
-let to_c p nbSteps =
+let to_c p _ =
   let regs =
     List.fold_left
       (fun regs (_, exp) ->
         match exp with Ereg a -> SSet.add a regs | _ -> regs )
       SSet.empty p.p_eqs
   in
-  let v1 = search_replace template "$NB_STEPS$" (string_of_int nbSteps) in
-  let memDef =
-    Format.asprintf "/* Registered memory blocks (RAM and ROM): */\n%a"
-      (pp_list pp_mem_def) p.p_eqs
-  in
-  let v1Bis = search_replace v1 "$MEM_DEF$" memDef in
-  let gateDef = ref "" in
-  Env.iter
-    (fun ident _ ->
-      let code =
-        if SSet.mem ident regs then Format.asprintf "reg_t %a;\n" pp_var ident
-        else Format.asprintf "gate_t %a;\n" pp_var ident
-      in
-      gateDef := !gateDef ^ code )
-    p.p_vars ;
-  let v2 = search_replace v1Bis "$GATE_DEF$" !gateDef in
-  let fctDef =
-    Format.asprintf "/* Instructions: */\n%a" (pp_list (pp_fct_def p)) p.p_eqs
-  in
-  let v3 = search_replace v2 "$FCT_DEF$" fctDef in
-  let fctSet = ref "" in
-  List.iter
-    (fun (ident, _) ->
-      fctSet := Format.asprintf "%a.fct = &%a;\n" pp_var ident pp_fct ident )
-    p.p_eqs ;
-  let v4 = search_replace v3 "$FCT_SET$" !fctSet in
-  let readRom =
-    Format.asprintf "/* Initializing ROM: */\n%a" (pp_list pp_read_rom) p.p_eqs
-  in
-  let v4Bis = search_replace v4 "$READ_ROM$" readRom in
-  let v8 = search_replace v4Bis "$CYCLE$" (generate_cycle_body p regs) in
-  v8
+  let output = search_replace template "$DEFS$" (generate_definitions p regs) in
+  let output = search_replace output "$INIT$" (generate_init p) in
+  let output = search_replace output "$CYCLE$" (generate_cycle_body p regs) in
+  output

@@ -19,6 +19,7 @@ typedef struct ram_t ram_t;
 
 /** Creates an infinite-size RAM block. */
 ram_t *ram_create();
+ram_t *ram_from_file(const char* filename);
 /** Destroys the given @a ram block. */
 void ram_destroy(ram_t* ram);
 /** Gets the word at the given @a addr of the given @a ram block. */
@@ -36,6 +37,8 @@ typedef struct rom_t { const word_t* data; } rom_t;
 
 /** Creates a ROM block with the given initial @a data of length @a data_len. */
 rom_t rom_create(const word_t *data, size_t data_len);
+/** Creates a ROM block with the data stored in the file @a filename. */
+rom_t rom_from_file(const char* filename);
 /** Destroys the given @a rom block. */
 void rom_destroy(rom_t rom);
 /** Gets the word at the given @a addr of the given @a rom block. */

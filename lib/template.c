@@ -11,7 +11,7 @@
 
 #include "memory.h"
 
-const unsigned long long nbSteps = $NB_STEPS$;
+const unsigned long long nbSteps = 0xFFFFFFFFFF;
 
 typedef struct gate_t
 {
@@ -69,11 +69,7 @@ static inline void ram_write(ram_t *ram, int write_enabled, addr_t addr, word_t 
         ram_set(ram, addr, value);
 }
 
-$MEM_DEF$
-
-$GATE_DEF$
-
-$FCT_DEF$
+$DEFS$
 
 /** Returns true if @a s ends with @a t (equivalently if @a t is a suffix of @a s). */
 static int strendswith(const char *s, const char *t)
@@ -107,9 +103,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    $FCT_SET$
-
-    $READ_ROM$
+    size_t cur_ram_file_idx = 0, cur_rom_file_idx = 0;
+$INIT$
 
     free(ram_files);
     free(rom_files);
@@ -117,6 +112,6 @@ int main(int argc, char *argv[])
     for (unsigned long long iStep = 0; iStep != nbSteps; iStep++)
     {
         printf("Step %lld:\n", iStep + 1);
-        $CYCLE$
+$CYCLE$
     }
 }

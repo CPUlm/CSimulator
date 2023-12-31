@@ -3,11 +3,55 @@
 #include <string.h>
 #include <stdio.h>
 
-void check_alloc(void* ptr) {
-    if (ptr == NULL) {
-        fprintf(stderr, "fatal error: out of memory (failed allocation)\n");
+void check_alloc(void *ptr)
+{
+    if (ptr == NULL)
+    {
+        fprintf(stderr, "error: out of memory (failed allocation)\n");
         abort();
     }
+}
+
+static word_t *read_file(const char *filename, addr_t *data_len)
+{
+    FILE *file = fopen(filename, "rb");
+    if (file == NULL)
+        return NULL;
+
+    // We declare data here so it is always correctly defined
+    // when we enter the error block.
+    word_t *data = NULL;
+
+    // Get file size (in bytes).
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    if (file_size % sizeof(word_t) != 0)
+        goto error; // the file does not contains word (of 4 bytes)
+
+    data = (word_t *)malloc(file_size);
+    if (data == NULL)
+        goto error; // memory error
+
+    size_t read_words = fread(data, sizeof(word_t), file_size / sizeof(word_t), file);
+    if (read_words * sizeof(word_t) != file_size)
+        goto error; // failed to read all the file
+
+    if (data_len != NULL)
+        *data_len = read_words;
+
+    fclose(file);
+    return data;
+
+error:
+    free(data);
+    fclose(file);
+    return NULL;
+}
+
+static void file_error(const char *filename)
+{
+    fprintf(stderr, "error: failed to read file '%s'\n", filename);
+    abort();
 }
 
 /*
@@ -145,6 +189,27 @@ ram_t *ram_create()
     return ram;
 }
 
+ram_t *ram_from_file(const char *filename)
+{
+    addr_t data_len = 0;
+    word_t *data = read_file(filename, &data_len);
+    if (data == NULL)
+        file_error(filename);
+
+    ram_t *ram = ram_create();
+
+    addr_t base_address = 0;
+    while (base_address < data_len)
+    {
+        ram_page_t *page = get_ram_page(ram, base_address);
+        addr_t words_to_copy = ((data_len - base_address < ram->page_size) ? (data_len - base_address) : ram->page_size);
+        memcpy(page->data, data + base_address, sizeof(word_t) * words_to_copy);
+        base_address += ram->page_size;
+    }
+
+    return ram;
+}
+
 void ram_destroy(ram_t *ram)
 {
     if (ram == NULL)
@@ -187,7 +252,7 @@ static ram_page_t *get_ram_page(ram_t *ram, addr_t addr)
         ram->bucket_count *= 2;
         ram_page_t *new_pages = (ram_page_t *)malloc(sizeof(ram_page_t) * ram->bucket_count);
         check_alloc(new_pages);
-        
+
         // Rehash the table (we just reinsert individually each of the previous memory pages
         // into the new hash table).
         for (addr_t i = 0; i < old_bucket_count; ++i)
@@ -253,7 +318,17 @@ rom_t rom_create(const word_t *data, size_t data_len)
     return rom;
 }
 
+rom_t rom_from_file(const char *filename)
+{
+    addr_t data_len;
+    const word_t *data = read_file(filename, &data_len);
+    if (data == NULL)
+        file_error(filename);
+
+    return rom_create(data, data_len);
+}
+
 void rom_destroy(rom_t rom)
 {
-    free((word_t*)rom.data);
+    free((word_t *)rom.data);
 }
