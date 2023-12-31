@@ -142,7 +142,7 @@ let to_c p nbSteps =
   in
   let v1 = search_replace template "$NB_STEPS$" (string_of_int nbSteps) in
   let memDef =
-    Format.asprintf "/* Registered memory blocks (RAM and ROM): */\n.%a"
+    Format.asprintf "/* Registered memory blocks (RAM and ROM): */\n%a"
       (pp_list pp_mem_def) p.p_eqs
   in
   let v1Bis = search_replace v1 "$MEM_DEF$" memDef in
