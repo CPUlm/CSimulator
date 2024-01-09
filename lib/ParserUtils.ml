@@ -8,35 +8,39 @@ let get_var n =
       failwith ("Unknown variable: " ^ n)
 
 let set_from_list s =
-  List.fold_left
-    (fun in_set v ->
-      let v = get_var v in
-      if Variable.Set.mem v in_set then failwith "Error"
-      else Variable.Set.add v in_set )
-    Variable.Set.empty s
+  let set = Hashtbl.create 17 in
+  let _ =
+    List.iter
+      (fun v ->
+        let v = get_var v in
+        if Hashtbl.mem set v then failwith "Multiple time the same var in decl"
+        else Hashtbl.add set v () )
+      s
+  in
+  set
 
 let mk_prog inputs outputs vars eqs_list =
-  let p_vars = Variable.Set.of_list vars in
-  let p_eqs =
-    List.fold_left
-      (fun eqs (v, eq) ->
-        match Variable.Map.find_opt v eqs with
+  let p_vars = Hashtbl.create 17 in
+  let _ = List.iter (fun v -> Hashtbl.add p_vars v ()) vars in
+  let p_eqs = Hashtbl.create 17 in
+  let _ =
+    List.iter
+      (fun (v, eq) ->
+        match Hashtbl.find_opt p_eqs v with
         | Some _ ->
             failwith "Already defined variable"
         | None ->
-            Variable.Map.add v eq eqs )
-      Variable.Map.empty eqs_list
+            Hashtbl.add p_eqs v eq )
+      eqs_list
   in
   let p_inputs = set_from_list inputs in
   let p_outputs = set_from_list outputs in
   let _ =
-    Variable.Set.iter
-      (fun v ->
-        if Variable.Map.mem v p_eqs then
-          (* Variable defined with an equation *)
+    Hashtbl.iter
+      (fun v _ ->
+        if Hashtbl.mem p_eqs v then (* Variable defined with an equation *)
           ()
-        else if Variable.Set.mem v p_inputs then
-          (* Variable defined as a input *)
+        else if Hashtbl.mem p_inputs v then (* Variable defined as a input *)
           ()
         else failwith "Undefined Variable Value" )
       p_vars

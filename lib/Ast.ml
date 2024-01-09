@@ -27,7 +27,7 @@ type exp =
 (* SELECT i a : ith element of a *)
 
 type program =
-  { p_eqs: exp Variable.map
-  ; p_inputs: Variable.set (* inputs *)
-  ; p_outputs: Variable.set (* outputs *)
-  ; p_vars: Variable.set (* all variables *) }
+  { p_eqs: (Variable.t, exp) Hashtbl.t
+  ; p_inputs: (Variable.t, unit) Hashtbl.t (* inputs *)
+  ; p_outputs: (Variable.t, unit) Hashtbl.t (* outputs *)
+  ; p_vars: (Variable.t, unit) Hashtbl.t (* all variables *) }

@@ -29,7 +29,7 @@ let read_file filename =
 let compile filename =
   try
     let p = read_file filename in
-    if !print_only then PrettyPrinter.print_program stdout p
+    if !print_only then PrettyPrinter.print_program Format.std_formatter p
     else
       try
         let s, _ = Scheduler.schedule p in
@@ -46,11 +46,11 @@ let compile filename =
 
 let () =
   Arg.parse
-    [ ("-n", Arg.Set_int number_steps, "Number of steps to simulate")
+    [ ("--steps", Arg.Set_int number_steps, "Number of steps to simulate")
     ; ( "--print"
       , Arg.Set print_only
       , "print the sorted net-list, without simulating it" )
-    ; ( "-q"
+    ; ( "--quiet"
       , Arg.Set quiet
       , "De not show the questions (eg a=... is not printed)" ) ]
     compile ""

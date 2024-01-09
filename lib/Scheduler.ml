@@ -6,9 +6,9 @@ let make_graph p =
     | Aconst _ ->
         ()
     | Avar v ->
-        if Variable.Set.mem v p.p_inputs then () else Graph.add_edge g n v
+        if Hashtbl.mem p.p_inputs v then () else Graph.add_edge g n v
   in
-  Variable.Map.iter
+  Hashtbl.iter
     (fun n -> function
       | Ereg _ ->
           (* Does NOT add a dependancy *)

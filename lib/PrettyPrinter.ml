@@ -49,25 +49,26 @@ let print_exp ff e =
   | Eslice s ->
       fprintf ff "SLICE %d %d %a" s.min s.max print_arg s.arg
 
-let rec print_idents ~with_size ff var_set =
-  let card = Variable.Set.cardinal var_set in
-  if card = 0 then ()
-  else if card = 1 then Variable.pp ff (Variable.Set.choose var_set)
-  else
-    let v = Variable.Set.choose var_set in
+let print_idents ~with_size ff l =
+  let pp_var ff v =
     let v_size = Variable.size v in
-    let var_set = Variable.Set.remove v var_set in
     if with_size && v_size <> 1 then
-      fprintf ff "@[%a : %i@],@ %a" Variable.pp v v_size
-        (print_idents ~with_size) var_set
-    else fprintf ff "%a,@ %a" Variable.pp v (print_idents ~with_size) var_set
+      fprintf ff "@[%a : %i@]" Variable.pp v v_size
+    else Variable.pp ff v
+  in
+  pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") pp_var ff l
 
-let print_program oc p =
-  let ff = formatter_of_out_channel oc in
-  fprintf ff "INPUT @[%a@]@." (print_idents ~with_size:false) p.p_inputs ;
-  fprintf ff "OUTPUT @[%a@]@." (print_idents ~with_size:false) p.p_outputs ;
-  fprintf ff "VARS @[%a@]@.IN@." (print_idents ~with_size:true) p.p_vars ;
-  Variable.Map.iter
+let print_program ff p =
+  fprintf ff "INPUT @[%a@]@."
+    (print_idents ~with_size:false)
+    (Hashtbl.to_seq_keys p.p_inputs |> List.of_seq) ;
+  fprintf ff "OUTPUT @[%a@]@."
+    (print_idents ~with_size:false)
+    (Hashtbl.to_seq_keys p.p_outputs |> List.of_seq) ;
+  fprintf ff "VARS @[%a@]@.IN@."
+    (print_idents ~with_size:true)
+    (Hashtbl.to_seq_keys p.p_vars |> List.of_seq) ;
+  Hashtbl.iter
     (fun v eq -> fprintf ff "%a = %a@." Variable.pp v print_exp eq)
     p.p_eqs ;
   fprintf ff "@."
