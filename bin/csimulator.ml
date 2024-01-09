@@ -28,7 +28,7 @@ let read_file filename =
 
 let compile filename =
   try
-    let p = Utils.read_file filename in
+    let p = read_file filename in
     try
       let p = Scheduler.schedule p in
       if !print_only then PrettyPrinter.print_program stdout p
@@ -40,7 +40,7 @@ let compile filename =
         Printf.printf "%s" c_prog
     with Scheduler.Combinational_cycle ->
       Format.eprintf "The netlist has a combinatory cycle.@."
-  with Utils.Parse_error s ->
+  with Parse_error s ->
     Format.eprintf "An error accurred: %s@." s ;
     exit 2
 
