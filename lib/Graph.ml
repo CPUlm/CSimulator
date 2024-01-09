@@ -1,57 +1,65 @@
-exception Cycle
+module Make (Ord : Map.OrderedType) = struct
+  module Map = Map.Make (Ord)
+  module Set = Set.Make (Ord)
 
-type mark = NotVisited | InProgress | Visited
+  exception Cycle
 
-type 'a node =
-  { n_label: 'a
-  ; mutable n_mark: mark
-  ; mutable n_childrens: ('a, 'a node) Hashtbl.t
-  ; mutable n_parents: ('a, 'a node) Hashtbl.t }
+  type mark = NotVisited | InProgress | Visited
 
-type 'a graph =
-  {mutable g_nodes: ('a, 'a node) Hashtbl.t; g_index: ('a, int) Hashtbl.t}
+  type node =
+    {mutable n_mark: mark; mutable n_childrens: Set.t; mutable n_parents: Set.t}
 
-let empty_graph () = {g_nodes= Hashtbl.create 17; g_index= Hashtbl.create 17}
+  type t = node Map.t
 
-let add_node g x =
-  if Hashtbl.mem g.g_nodes x then failwith "Multiple def of a node"
-  else
-    let n =
-      { n_label= x
-      ; n_mark= NotVisited
-      ; n_childrens= Hashtbl.create 17
-      ; n_parents= Hashtbl.create 17 }
+  let empty = Map.empty
+
+  let add_node g x =
+    if Map.mem x g then failwith "Multiple def of a node"
+    else
+      let n =
+        {n_mark= NotVisited; n_childrens= Set.empty; n_parents= Set.empty}
+      in
+      (n, Map.add x n g)
+
+  let node_of_label g x =
+    match Map.find_opt x g with Some n -> (n, g) | None -> add_node g x
+
+  let add_edge g id1 id2 =
+    let n1, g = node_of_label g id1 in
+    let n2, g = node_of_label g id2 in
+    if Set.mem id2 n1.n_childrens then failwith "Already a Child"
+    else n1.n_childrens <- Set.add id2 n1.n_childrens ;
+    if Set.mem id1 n2.n_parents then failwith "Already a Parent"
+    else n2.n_parents <- Set.add id1 n2.n_parents ;
+    g
+
+  let clear_marks g = Map.iter (fun _ n -> n.n_mark <- NotVisited) g
+
+  let cpt = ref 0
+
+  let topological g =
+    let ordering = Hashtbl.create 17 in
+    let rec dfs g node =
+      let node_struct = Map.find node g in
+      if node_struct.n_mark = InProgress then raise Cycle
+      else if node_struct.n_mark = Visited then ()
+      else (
+        node_struct.n_mark <- InProgress ;
+        Set.iter (dfs g) node_struct.n_childrens ;
+        node_struct.n_mark <- Visited ;
+        incr cpt ;
+        Hashtbl.add ordering node !cpt )
     in
-    Hashtbl.add g.g_nodes x n ; n
+    clear_marks g ;
+    cpt := 0 ;
+    Map.iter (fun n _ -> dfs g n) g ;
+    ordering
 
-let node_of_label g x =
-  match Hashtbl.find_opt g.g_nodes x with Some n -> n | None -> add_node g x
+  let children g n =
+    match Map.find_opt n g with None -> Set.empty | Some n -> n.n_childrens
 
-(** [add_edge g n1 n2] adds an edge from [n1] to [n2]. *)
-let add_edge g id1 id2 =
-  let n1 = node_of_label g id1 in
-  let n2 = node_of_label g id2 in
-  if Hashtbl.mem n1.n_childrens id2 then failwith "Already a Child"
-  else Hashtbl.add n1.n_childrens id2 n2 ;
-  if Hashtbl.mem n2.n_parents id1 then failwith "Already a Parent"
-  else Hashtbl.add n1.n_childrens id2 n2
+  let parents g n =
+    match Map.find_opt n g with None -> Set.empty | Some n -> n.n_parents
 
-let clear_marks g = Hashtbl.iter (fun _ n -> n.n_mark <- NotVisited) g.g_nodes
-
-let cpt = ref 0
-
-let rec dfs g node =
-  if node.n_mark = InProgress then raise Cycle
-  else if node.n_mark = Visited then ()
-  else (
-    node.n_mark <- InProgress ;
-    Hashtbl.iter (fun _ -> dfs g) node.n_childrens ;
-    node.n_mark <- Visited ;
-    incr cpt ;
-    Hashtbl.add g.g_index node.n_label !cpt )
-
-let topological g =
-  clear_marks g ;
-  cpt := 0 ;
-  Hashtbl.iter (fun _ -> dfs g) g.g_nodes ;
-  g.g_index
+  let iter f = Map.iter (fun n ns -> f n ns.n_parents ns.n_childrens)
+end

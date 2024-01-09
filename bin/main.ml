@@ -31,15 +31,10 @@ let compile filename =
     let p = read_file filename in
     if !print_only then PrettyPrinter.print_program Format.std_formatter p
     else
-      try
-        let s, _ = Scheduler.schedule p in
-        let l =
-          Hashtbl.to_seq s |> List.of_seq
-          |> List.sort (fun (_, i) (_, j) -> i - j)
-        in
-        List.iter (fun (v, i) -> Format.printf "%5i <-> %a@." i Variable.pp v) l
-      with Graph.Cycle ->
-        Format.eprintf "The netlist has a combinatory cycle.@."
+      let top, _ = Scheduler.variable_ordering p in
+      let colors, blocks = Scheduler.split_in_block p in
+      Format.printf "Nb Colors: %i@.@.%a" (Hashtbl.length blocks)
+        Scheduler.pp_color (colors, top, p)
   with Parse_error s ->
     Format.eprintf "An error accurred: %s@." s ;
     exit 2
