@@ -1,70 +1,38 @@
 open Ast
-open Graph
 
-exception Combinational_cycle
-
-let read_exp (_, exp) =
-  let lst_from_arg = function Avar i -> [i] | Aconst _ -> [] in
-  match exp with
-  | Earg a ->
-      lst_from_arg a
-  | Ereg _ ->
-      []
-  | Enot a ->
-      lst_from_arg a
-  | Ebinop (_, a, b) ->
-      lst_from_arg a @ lst_from_arg b (* size of the lists <= 1 *)
-  | Emux (a, b, c) ->
-      lst_from_arg a @ lst_from_arg b @ lst_from_arg c
-  | Erom (_, _, a) ->
-      lst_from_arg a
-  | Eram (_, _, a, _, _, _) ->
-      lst_from_arg a
-      (* writing to the ram will take place at the end of the iteration and will therefore not cause a cycle *)
-  | Econcat (a, b) ->
-      lst_from_arg a @ lst_from_arg b
-  | Eslice (_, _, a) ->
-      lst_from_arg a
-  | Eselect (_, a) ->
-      lst_from_arg a
+let make_graph p =
+  let g = Graph.empty_graph () in
+  let add_edge n = function
+    | Aconst _ ->
+        ()
+    | Avar v ->
+        if Variable.Set.mem v p.p_inputs then () else Graph.add_edge g n v
+  in
+  Variable.Map.iter
+    (fun n -> function
+      | Ereg _ ->
+          (* Does NOT add a dependancy *)
+          ()
+      | Emux (a, b, c) ->
+          add_edge n a ; add_edge n b ; add_edge n c
+      | Eram ram ->
+          add_edge n ram.read_addr
+      | Erom rom ->
+          (* Write is performed in at the end of the cycle. *)
+          add_edge n rom.read_addr
+      | Ebinop (_, a, b) ->
+          add_edge n a ; add_edge n b
+      | Econcat (a, b) ->
+          add_edge n a ; add_edge n b
+      | Eslice s ->
+          add_edge n s.arg
+      | Enot x | Earg x | Eselect (_, x) ->
+          add_edge n x )
+    p.p_eqs ;
+  g
 
 let schedule p =
-  let g = mk_graph () in
-  List.iter (fun (ident, _) -> add_node g ident) p.p_eqs ;
-  let rec is_not_input v = function
-    | [] ->
-        true
-    | i :: _ when i = v ->
-        false
-    | _ :: lstInput ->
-        is_not_input v lstInput
-  in
-  let rec addLst nodeA = function
-    | [] ->
-        ()
-    | nodeB :: queue ->
-        if is_not_input nodeB p.p_inputs then add_edge g nodeB nodeA ;
-        addLst nodeA queue
-  in
-  List.iter (fun (ident, exp) -> addLst ident (read_exp (ident, exp))) p.p_eqs ;
-  try
-    let item_order = topological g in
-    let rec find_equa item = function
-      | [] ->
-          failwith "not found"
-      | e :: _ when fst e = item ->
-          e
-      | _ :: q ->
-          find_equa item q
-    in
-    let rec build_p_eqs = function
-      | [] ->
-          []
-      | item :: lst ->
-          find_equa item p.p_eqs :: build_p_eqs lst
-    in
-    { p_eqs= build_p_eqs item_order
-    ; p_inputs= p.p_inputs
-    ; p_outputs= p.p_outputs
-    ; p_vars= p.p_vars }
-  with Cycle -> raise Combinational_cycle
+  let g = make_graph p in
+  let top = Graph.topological g in
+  let n = Hashtbl.length top in
+  (top, n)

@@ -2,63 +2,56 @@ exception Cycle
 
 type mark = NotVisited | InProgress | Visited
 
-type 'a graph = {mutable g_nodes: 'a node list}
-
-and 'a node =
+type 'a node =
   { n_label: 'a
   ; mutable n_mark: mark
-  ; mutable n_link_to: 'a node list
-  ; mutable n_linked_by: 'a node list }
+  ; mutable n_childrens: ('a, 'a node) Hashtbl.t
+  ; mutable n_parents: ('a, 'a node) Hashtbl.t }
 
-let mk_graph () = {g_nodes= []}
+type 'a graph =
+  {mutable g_nodes: ('a, 'a node) Hashtbl.t; g_index: ('a, int) Hashtbl.t}
+
+let empty_graph () = {g_nodes= Hashtbl.create 17; g_index= Hashtbl.create 17}
 
 let add_node g x =
-  let n = {n_label= x; n_mark= NotVisited; n_link_to= []; n_linked_by= []} in
-  g.g_nodes <- n :: g.g_nodes
+  if Hashtbl.mem g.g_nodes x then failwith "Multiple def of a node"
+  else
+    let n =
+      { n_label= x
+      ; n_mark= NotVisited
+      ; n_childrens= Hashtbl.create 17
+      ; n_parents= Hashtbl.create 17 }
+    in
+    Hashtbl.add g.g_nodes x n ; n
 
-let node_of_label g x = List.find (fun n -> n.n_label = x) g.g_nodes
+let node_of_label g x =
+  match Hashtbl.find_opt g.g_nodes x with Some n -> n | None -> add_node g x
 
+(** [add_edge g n1 n2] adds an edge from [n1] to [n2]. *)
 let add_edge g id1 id2 =
-  try
-    let n1 = node_of_label g id1 in
-    let n2 = node_of_label g id2 in
-    n1.n_link_to <- n2 :: n1.n_link_to ;
-    n2.n_linked_by <- n1 :: n2.n_linked_by
-  with Not_found ->
-    Format.eprintf "Tried to add an edge between non-existing nodes" ;
-    raise Not_found
+  let n1 = node_of_label g id1 in
+  let n2 = node_of_label g id2 in
+  if Hashtbl.mem n1.n_childrens id2 then failwith "Already a Child"
+  else Hashtbl.add n1.n_childrens id2 n2 ;
+  if Hashtbl.mem n2.n_parents id1 then failwith "Already a Parent"
+  else Hashtbl.add n1.n_childrens id2 n2
 
-let clear_marks g = List.iter (fun n -> n.n_mark <- NotVisited) g.g_nodes
+let clear_marks g = Hashtbl.iter (fun _ n -> n.n_mark <- NotVisited) g.g_nodes
 
-let find_roots g = List.filter (fun n -> n.n_linked_by = []) g.g_nodes
+let cpt = ref 0
 
-let has_cycle g =
-  clear_marks g ;
-  let rec dfs node =
-    if node.n_mark = InProgress then true
-    else if node.n_mark = Visited then false
-    else (
-      node.n_mark <- InProgress ;
-      let result =
-        List.fold_left
-          (fun result neighbor -> result || dfs neighbor)
-          false node.n_link_to
-      in
-      node.n_mark <- Visited ;
-      result )
-  in
-  List.fold_left (fun result node -> result || dfs node) false g.g_nodes
+let rec dfs g node =
+  if node.n_mark = InProgress then raise Cycle
+  else if node.n_mark = Visited then ()
+  else (
+    node.n_mark <- InProgress ;
+    Hashtbl.iter (fun _ -> dfs g) node.n_childrens ;
+    node.n_mark <- Visited ;
+    incr cpt ;
+    Hashtbl.add g.g_index node.n_label !cpt )
 
 let topological g =
   clear_marks g ;
-  let topo = ref [] in
-  let rec dfs node =
-    if node.n_mark = InProgress then raise Cycle
-    else if node.n_mark = Visited then ()
-    else (
-      node.n_mark <- InProgress ;
-      List.iter (fun neighbor -> dfs neighbor) node.n_link_to ;
-      node.n_mark <- Visited ;
-      topo := node.n_label :: !topo )
-  in
-  List.iter dfs g.g_nodes ; !topo
+  cpt := 0 ;
+  Hashtbl.iter (fun _ -> dfs g) g.g_nodes ;
+  g.g_index

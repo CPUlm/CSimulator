@@ -1,4 +1,4 @@
-open LibCNetlistSimulator
+open LibCNetlist
 
 let print_only = ref false
 
@@ -29,17 +29,17 @@ let read_file filename =
 let compile filename =
   try
     let p = read_file filename in
-    try
-      let p = Scheduler.schedule p in
-      if !print_only then PrettyPrinter.print_program stdout p
-      else
-        let c_prog = NetlistToC.to_c p !number_steps in
-        (*let c_file = open_out "prog.cpp" in
-          Printf.fprintf c_file "%s\n" c_prog;
-          close_out c_file*)
-        Printf.printf "%s" c_prog
-    with Scheduler.Combinational_cycle ->
-      Format.eprintf "The netlist has a combinatory cycle.@."
+    if !print_only then PrettyPrinter.print_program stdout p
+    else
+      try
+        let s, _ = Scheduler.schedule p in
+        let l =
+          Hashtbl.to_seq s |> List.of_seq
+          |> List.sort (fun (_, i) (_, j) -> i - j)
+        in
+        List.iter (fun (v, i) -> Format.printf "%5i <-> %a@." i Variable.pp v) l
+      with Graph.Cycle ->
+        Format.eprintf "The netlist has a combinatory cycle.@."
   with Parse_error s ->
     Format.eprintf "An error accurred: %s@." s ;
     exit 2

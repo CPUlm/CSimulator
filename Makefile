@@ -1,14 +1,14 @@
-all: csimulator
+all: main
 
-csimulator:
-	@dune build bin/csimulator.exe
-	@cp -f _build/default/bin/csimulator.exe csimulator
+main:
+	@dune build bin/main.exe
+	@cp -f _build/default/bin/main.exe csimulator
 
-test: csimulator
+test: main
 	@echo "\033[0;34mTests de simulation :\033[0m"
 	@bash ./run_tests.sh
 
 clean:
-	@rm -rf _build/ asm
+	@rm -rf _build/ csimulator
 
-.PHONY: all csimulator test clean
+.PHONY: all main test clean

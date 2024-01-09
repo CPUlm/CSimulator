@@ -1,5 +1,5 @@
 (library
- (name LibCNetlistSimulator))
+ (name LibCNetlist))
 
 (ocamllex
  (modules Lexer))
