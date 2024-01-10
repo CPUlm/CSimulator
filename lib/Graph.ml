@@ -19,17 +19,21 @@ module Make (Ord : Map.OrderedType) = struct
       let n =
         {n_mark= NotVisited; n_childrens= Set.empty; n_parents= Set.empty}
       in
-      (n, Map.add x n g)
+      Map.add x n g
 
   let node_of_label g x =
-    match Map.find_opt x g with Some n -> (n, g) | None -> add_node g x
+    match Map.find_opt x g with
+    | Some n ->
+        (n, g)
+    | None ->
+        failwith "Unknown node"
 
   let add_edge g id1 id2 =
     let n1, g = node_of_label g id1 in
     let n2, g = node_of_label g id2 in
-    if Set.mem id2 n1.n_childrens then failwith "Already a Child"
+    if Set.mem id2 n1.n_childrens then ()
     else n1.n_childrens <- Set.add id2 n1.n_childrens ;
-    if Set.mem id1 n2.n_parents then failwith "Already a Parent"
+    if Set.mem id1 n2.n_parents then ()
     else n2.n_parents <- Set.add id1 n2.n_parents ;
     g
 

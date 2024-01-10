@@ -2,6 +2,9 @@ open Ast
 module VarGraph = Graph.Make (Variable)
 
 let make_graph p =
+  let g =
+    Hashtbl.fold (fun v () g -> VarGraph.add_node g v) p.p_vars VarGraph.empty
+  in
   let add_edge g n = function
     | Aconst _ ->
         g
@@ -40,7 +43,7 @@ let make_graph p =
       | Enot x | Earg x | Eselect (_, x) ->
           let g = add_edge g n x in
           g )
-    p.p_eqs VarGraph.empty
+    p.p_eqs g
 
 let variable_ordering p =
   let g = make_graph p in
@@ -188,4 +191,4 @@ let split_in_block p =
       loop to_process
   in
   let to_process = VarHeap.of_seq (Hashtbl.to_seq_keys p.p_eqs) in
-  loop to_process ; (colors, blocks)
+  loop to_process ; (g, colors, blocks)

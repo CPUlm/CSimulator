@@ -67,9 +67,9 @@ module Make (Ord : Map.OrderedType) = struct
 
   type bt = {rank: int; root: Ord.t; kids: bt list}
 
-  type t = {size: int; data: bt list; mind: Ord.t option; members: Set.t}
+  type t = {size: int; data: bt list; mind: Ord.t option}
 
-  let empty = {size= 0; data= []; mind= None; members= Set.empty}
+  let empty = {size= 0; data= []; mind= None}
 
   let size bh = bh.size
 
@@ -93,9 +93,9 @@ module Make (Ord : Map.OrderedType) = struct
     let mind =
       match bh.mind with None -> Some x | Some mind -> Some (ord_min x mind)
     in
-    {size= bh.size + 1; data; mind; members= Set.add x bh.members}
+    {size= bh.size + 1; data; mind}
 
-  let add x bh = if Set.mem x bh.members then bh else insert bh x
+  let add x bh = insert bh x
 
   let rec merge_data ts1 ts2 =
     match (ts1, ts2) with
@@ -141,7 +141,7 @@ module Make (Ord : Map.OrderedType) = struct
           if size = 0 then None
           else Some (find_min_tree data ~kfail ~ksuccess:(fun t -> t)).root
         in
-        {size; data; mind; members= Set.remove bt.root bh.members} )
+        {size; data; mind} )
 
   let to_list bh =
     let rec aux acc bh =

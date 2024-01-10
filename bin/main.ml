@@ -1,51 +1,73 @@
 open LibCNetlist
 
-let print_only = ref false
+type act = PrintProg | PrintBlocks | PrintColorTable | Compile
 
-let number_steps = ref (-1)
+let action = ref Compile
 
 let quiet = ref false
 
-exception Parse_error of string
+let number_steps = ref None
 
-let find_file filename =
-  try open_in filename
-  with _ -> raise (Parse_error ("No such file '" ^ filename ^ "%s'"))
+let usage = "usage: csimulator [options] file.net"
 
-(** [read_file filename] reads the [filename] file and outputs the corresponding
-    Netlist_ast.program.*)
-let read_file filename =
-  let ic = find_file filename in
-  let lexbuf = Lexing.from_channel ic in
-  lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname= filename} ;
-  try Parser.program Lexer.token lexbuf
-  with _ ->
-    let loc =
-      Format.sprintf "line %d, column %d" lexbuf.lex_curr_p.pos_lnum
-        (lexbuf.lex_curr_p.pos_cnum - lexbuf.lex_curr_p.pos_bol)
-    in
-    raise (Parse_error ("Syntax error at " ^ loc))
+let spec =
+  Arg.align
+    [ (* Disable '-help' because its ugly without the -- *)
+      ( "-help"
+      , Arg.Unit (fun () -> raise (Arg.Bad "unknown option '-help'"))
+      , "" )
+    ; ( "--print-prog"
+      , Arg.Unit (fun () -> action := PrintProg)
+      , " Output the program as a Graphviz File." )
+    ; ( "--print-blocks"
+      , Arg.Unit (fun () -> action := PrintBlocks)
+      , " Output the blocks of the program as Graphviz File with colored node."
+      )
+    ; ( "--color-table"
+      , Arg.Unit (fun () -> action := PrintColorTable)
+      , " Output a table with the block of each node." )
+    ; ("--quiet", Arg.Set quiet, " Produce a quiet program.")
+    ; ( "--steps"
+      , Arg.Int (fun i -> number_steps := Some i)
+      , " Number of steps to simulate." ) ]
 
-let compile filename =
+let filename =
+  let file = ref None in
+  let set_file s =
+    if not (Filename.check_suffix s ".net") then
+      raise (Arg.Bad "no .net extension")
+    else if Option.is_some !file then raise (Arg.Bad "multiple input files.")
+    else file := Some s
+  in
+  Arg.parse spec set_file usage ;
+  match !file with Some f -> f | None -> Arg.usage spec usage ; exit 1
+
+let program =
   try
-    let p = read_file filename in
-    if !print_only then PrettyPrinter.print_program Format.std_formatter p
-    else
-      let top, _ = Scheduler.variable_ordering p in
-      let colors, blocks = Scheduler.split_in_block p in
-      Format.printf "Nb Colors: %i@.@.%a" (Hashtbl.length blocks)
-        Scheduler.pp_color (colors, top, p)
-  with Parse_error s ->
-    Format.eprintf "An error accurred: %s@." s ;
-    exit 2
+    let c = open_in filename in
+    let lexbuf = Lexing.from_channel c in
+    try Parser.program Lexer.token lexbuf
+    with e ->
+      Format.eprintf "Error at %s:%d%d:@.%s@." filename
+        lexbuf.lex_curr_p.pos_lnum
+        (lexbuf.lex_curr_p.pos_cnum - lexbuf.lex_curr_p.pos_bol)
+        (Printexc.to_string e) ;
+      exit 1
+  with e ->
+    Format.eprintf "Error in file %s:@.%s@." filename (Printexc.to_string e) ;
+    exit 1
 
 let () =
-  Arg.parse
-    [ ("--steps", Arg.Set_int number_steps, "Number of steps to simulate")
-    ; ( "--print"
-      , Arg.Set print_only
-      , "print the sorted net-list, without simulating it" )
-    ; ( "--quiet"
-      , Arg.Set quiet
-      , "De not show the questions (eg a=... is not printed)" ) ]
-    compile ""
+  match !action with
+  | PrintProg ->
+      ToDot.pp_graph Format.std_formatter (program, None)
+  | PrintBlocks ->
+      let _, colors, _ = Scheduler.split_in_block program in
+      ToDot.pp_graph Format.std_formatter (program, Some colors)
+  | PrintColorTable ->
+      let top, _ = Scheduler.variable_ordering program in
+      let _, colors, blocks = Scheduler.split_in_block program in
+      Format.printf "Nb Colors: %i@.@.%a" (Hashtbl.length blocks)
+        Scheduler.pp_color (colors, top, program)
+  | Compile ->
+      assert false

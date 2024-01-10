@@ -10,6 +10,9 @@ module Make (Ord : Map.OrderedType) : sig
   val empty : t
   (** The empty graph. *)
 
+  val add_node : t -> Ord.t -> t
+  (** [add_node g n] adds the node [n] to the graph in [g]. *)
+
   val add_edge : t -> Ord.t -> Ord.t -> t
   (** [add_edge g n1 n2] adds an edge from [n1] to [n2] in [g]. *)
 
