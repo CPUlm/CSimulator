@@ -7,14 +7,19 @@ module Make (Ord : Map.OrderedType) : sig
 
   type t
 
-  val empty : t
+  type mut
+
+  val empty : unit -> mut
   (** The empty graph. *)
 
-  val add_node : t -> Ord.t -> t
+  val add_node : mut -> Ord.t -> unit
   (** [add_node g n] adds the node [n] to the graph in [g]. *)
 
-  val add_edge : t -> Ord.t -> Ord.t -> t
+  val add_edge : mut -> Ord.t -> Ord.t -> unit
   (** [add_edge g n1 n2] adds an edge from [n1] to [n2] in [g]. *)
+
+  val freeze : mut -> t
+  (** [freeze g] freeze the graph [g] and returns an immutable structure. *)
 
   val topological : t -> (Ord.t, int) Hashtbl.t
   (** [topological] returns a topological ordering over the vertex of the graph [g].*)

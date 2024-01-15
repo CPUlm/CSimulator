@@ -2,48 +2,39 @@ open Ast
 module VarGraph = Graph.Make (Variable)
 
 let make_graph p =
-  let g =
-    Hashtbl.fold (fun v () g -> VarGraph.add_node g v) p.p_vars VarGraph.empty
-  in
+  let g = VarGraph.empty () in
+  Hashtbl.iter (fun v () -> VarGraph.add_node g v) p.p_vars ;
   let add_edge g n = function
-    | Aconst _ ->
-        g
-    | Avar v ->
+    | Constant _ ->
+        ()
+    | Variable v ->
         VarGraph.add_edge g v n
   in
-  Hashtbl.fold
-    (fun n eq g ->
+  Hashtbl.iter
+    (fun n eq ->
       match eq with
-      | Ereg _ ->
+      | Reg _ ->
           (* Does NOT add a dependancy *)
-          g
-      | Emux (a, b, c) ->
-          let g = add_edge g n a in
-          let g = add_edge g n b in
-          let g = add_edge g n c in
-          g
-      | Eram ram ->
-          let g = add_edge g n ram.read_addr in
-          g
-      | Erom rom ->
+          ()
+      | Mux md ->
+          add_edge g n md.cond ;
+          add_edge g n md.true_b ;
+          add_edge g n md.false_b
+      | Ram ram ->
+          add_edge g n ram.read_addr
+      | Rom rom ->
           (* Write is performed in at the end of the cycle. *)
-          let g = add_edge g n rom.read_addr in
-          g
-      | Ebinop (_, a, b) ->
-          let g = add_edge g n a in
-          let g = add_edge g n b in
-          g
-      | Econcat (a, b) ->
-          let g = add_edge g n a in
-          let g = add_edge g n b in
-          g
-      | Eslice s ->
-          let g = add_edge g n s.arg in
-          g
-      | Enot x | Earg x | Eselect (_, x) ->
-          let g = add_edge g n x in
-          g )
-    p.p_eqs g
+          add_edge g n rom.read_addr
+      | Binop (_, a, b) ->
+          add_edge g n a ; add_edge g n b
+      | Concat (a, b) ->
+          add_edge g n a ; add_edge g n b
+      | Slice s ->
+          add_edge g n s.arg
+      | Not x | Arg x | Select (_, x) ->
+          add_edge g n x )
+    p.p_eqs ;
+  VarGraph.freeze g
 
 let variable_ordering p =
   let g = make_graph p in
@@ -62,9 +53,18 @@ let pp_graph pp ppf g =
         id (pp_set pp) chi (pp_set pp) par )
     g
 
-type block = {repr: Variable.t; members: (Variable.t, unit) Hashtbl.t}
+type mut_block =
+  {m_repr: Variable.t; m_members: Variable.t list; m_deps: Variable.t list}
 
 type color = Color of int
+
+module ColorSet = Set.Make (struct
+  type t = color
+
+  let compare (Color i) (Color j) = Int.compare i j
+end)
+
+type bloc = {repr: Variable.t; members: Variable.set; deps: ColorSet.t}
 
 let center ?(filler = ' ') size pp i =
   let text = Format.asprintf "%a" pp i in
@@ -114,9 +114,7 @@ let fresh_color =
   let cpt = ref 0 in
   fun () -> incr cpt ; Color !cpt
 
-exception NotTrue
-
-let split_in_block p =
+let split p =
   let order, g = variable_ordering p in
   let comp v1 v2 =
     Int.compare (Hashtbl.find order v1) (Hashtbl.find order v2)
@@ -127,13 +125,13 @@ let split_in_block p =
     let compare = comp
   end) in
   let colors = Hashtbl.create 17 in
-  let blocks = Hashtbl.create 17 in
   (* [color_bloc] color the variable [var] in [col] and all its precedessor
      if they can be colored. *)
   let color_block var fresh_col =
-    let node_colored = Hashtbl.create 17 in
+    let node_colored = ref [] in
+    let deps = ref [] in
     Hashtbl.add colors var fresh_col ;
-    Hashtbl.add node_colored var () ;
+    node_colored := var :: !node_colored ;
     let to_process =
       let var_parents = VarGraph.parents g var in
       VarGraph.Set.fold (fun v h -> VarHeap.add v h) var_parents VarHeap.empty
@@ -164,31 +162,47 @@ let split_in_block p =
         then (
           (* We color it with the fresh color *)
           Hashtbl.add colors node fresh_col ;
-          Hashtbl.add node_colored node () ;
+          node_colored := node :: !node_colored ;
           (* And add its parents to the node to be processed. *)
           let to_process =
             VarGraph.Set.fold (fun v h -> VarHeap.add v h) parents to_process
           in
           (* And we process them *)
           loop to_process )
-        else (* Nothing can be done. *)
-          loop to_process
+        else (
+          (* Nothing can be done. *)
+          deps := node :: !deps ;
+          loop to_process )
     in
-    loop to_process ; node_colored
+    loop to_process ; (!node_colored, !deps)
   in
-  let rec loop to_process =
-    if VarHeap.size to_process = 0 then ()
+  let rec loop acc to_process =
+    if VarHeap.size to_process = 0 then acc
     else
-      let repr = VarHeap.find_min to_process in
+      let m_repr = VarHeap.find_min to_process in
       let to_process = VarHeap.del_min to_process in
-      ( match Hashtbl.find_opt colors repr with
-      | Some _ ->
-          ()
-      | None ->
-          let new_col = fresh_color () in
-          let members = color_block repr new_col in
-          Hashtbl.add blocks {repr; members} () ) ;
-      loop to_process
+      let acc =
+        match Hashtbl.find_opt colors m_repr with
+        | Some _ ->
+            acc
+        | None ->
+            let new_col = fresh_color () in
+            let m_members, m_deps = color_block m_repr new_col in
+            {m_repr; m_members; m_deps} :: acc
+      in
+      loop acc to_process
   in
   let to_process = VarHeap.of_seq (Hashtbl.to_seq_keys p.p_eqs) in
-  loop to_process ; (g, colors, blocks)
+  let blocks = loop [] to_process in
+  let blocks =
+    List.fold_left
+      (fun bset mb ->
+        let repr = mb.m_repr in
+        let members = Variable.Set.of_list mb.m_members in
+        let deps =
+          List.map (Hashtbl.find colors) mb.m_deps |> ColorSet.of_list
+        in
+        Variable.Map.add repr {repr; members; deps} bset )
+      Variable.Map.empty blocks
+  in
+  (g, colors, blocks)

@@ -36,8 +36,6 @@ module type S = sig
   (** [add x h] is the same as [insert h x]. This function is intended
     to be used with [fold_right]. O(log m) *)
 
-  (** {6 Operations} *)
-
   val find_min : t -> elm
   (** Find the minimal element of the heap. O(1)
     @raise Invalid_argument ["find_min"] if the heap is empty *)
@@ -46,16 +44,8 @@ module type S = sig
   (** Delete the minimal element of the heap. O(log n)
     @raise Invalid_argument ["del_min"] if the heap is empty *)
 
-  (** {6 Transformation} *)
-
-  val of_list : elm list -> t
-  (** Build a heap from a given list. O(n log n) *)
-
   val of_seq : elm Seq.t -> t
   (** Build a heap from a given sequence. O(n log n) *)
-
-  val to_list : t -> elm list
-  (** Enumerate the elements of the heap. O(n log n) *)
 end
 
 (** Functorized heaps over arbitrary orderings. *)

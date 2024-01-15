@@ -7,9 +7,9 @@ let print_value ff v = Format.fprintf ff "%#x" v
 
 let print_arg ff arg =
   match arg with
-  | Aconst c ->
+  | Constant c ->
       print_value ff c.value
-  | Avar id ->
+  | Variable id ->
       Variable.pp ff id
 
 let print_op ff op =
@@ -25,28 +25,29 @@ let print_op ff op =
 
 let print_exp ff e =
   match e with
-  | Earg a ->
+  | Arg a ->
       print_arg ff a
-  | Ereg x ->
+  | Reg x ->
       fprintf ff "REG %a" Variable.pp x
-  | Enot x ->
+  | Not x ->
       fprintf ff "NOT %a" print_arg x
-  | Ebinop (op, x, y) ->
+  | Binop (op, x, y) ->
       fprintf ff "%a %a %a" print_op op print_arg x print_arg y
-  | Emux (c, x, y) ->
-      fprintf ff "MUX %a %a %a " print_arg c print_arg x print_arg y
-  | Erom rom ->
+  | Mux md ->
+      fprintf ff "MUX %a %a %a " print_arg md.cond print_arg md.true_b print_arg
+        md.false_b
+  | Rom rom ->
       fprintf ff "ROM %d %d %a" rom.addr_size rom.word_size print_arg
         rom.read_addr
-  | Eram ram ->
+  | Ram ram ->
       fprintf ff "RAM %d %d %a %a %a %a" ram.addr_size ram.word_size print_arg
         ram.read_addr print_arg ram.write_enable print_arg ram.write_addr
         print_arg ram.write_data
-  | Eselect (idx, x) ->
+  | Select (idx, x) ->
       fprintf ff "SELECT %d %a" idx print_arg x
-  | Econcat (x, y) ->
+  | Concat (x, y) ->
       fprintf ff "CONCAT %a %a" print_arg x print_arg y
-  | Eslice s ->
+  | Slice s ->
       fprintf ff "SLICE %d %d %a" s.min s.max print_arg s.arg
 
 let print_idents ~with_size ff l =

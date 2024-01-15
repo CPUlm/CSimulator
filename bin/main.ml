@@ -1,6 +1,11 @@
 open LibCNetlist
 
-type act = PrintProg | PrintBlocks | PrintColorTable | Compile
+type act =
+  | PrintProg
+  | PrintBlocks
+  | PrintColorTable
+  | PrintPositionTable
+  | Compile
 
 let action = ref Compile
 
@@ -26,6 +31,9 @@ let spec =
     ; ( "--color-table"
       , Arg.Unit (fun () -> action := PrintColorTable)
       , " Output a table with the block of each node." )
+    ; ( "--position-table"
+      , Arg.Unit (fun () -> action := PrintPositionTable)
+      , " Output a table with the position of each variable." )
     ; ("--quiet", Arg.Set quiet, " Produce a quiet program.")
     ; ( "--steps"
       , Arg.Int (fun i -> number_steps := Some i)
@@ -62,12 +70,31 @@ let () =
   | PrintProg ->
       ToDot.pp_graph Format.std_formatter (program, None)
   | PrintBlocks ->
-      let _, colors, _ = Scheduler.split_in_block program in
+      let _, colors, _ = BlockSplitter.split program in
       ToDot.pp_graph Format.std_formatter (program, Some colors)
   | PrintColorTable ->
-      let top, _ = Scheduler.variable_ordering program in
-      let _, colors, blocks = Scheduler.split_in_block program in
-      Format.printf "Nb Colors: %i@.@.%a" (Hashtbl.length blocks)
-        Scheduler.pp_color (colors, top, program)
+      let top, _ = BlockSplitter.variable_ordering program in
+      let _, colors, blocks = BlockSplitter.split program in
+      Format.printf "Nb Colors: %i@.@.%a"
+        (Variable.Map.cardinal blocks)
+        BlockSplitter.pp_color (colors, top, program)
+  | PrintPositionTable ->
+      let top, _ = BlockSplitter.variable_ordering program in
+      let pos, _ = Position.compute_pos program top in
+      let useless, always = Position.split_nodes pos in
+      Format.printf "%a@.Always: %i@.Useless: %i@." Position.pp_pos
+        (pos, top, program)
+        (Variable.Set.cardinal always)
+        (Variable.Set.cardinal useless) ;
+      Format.printf "List: %a@.@."
+        (Format.pp_print_seq
+           ~pp_sep:(fun ppf () -> Format.fprintf ppf ";@ ")
+           Variable.pp )
+        (Variable.Set.to_seq useless) ;
+      Format.printf "List: %a@."
+        (Format.pp_print_seq
+           ~pp_sep:(fun ppf () -> Format.fprintf ppf ";@ ")
+           Variable.pp )
+        (Variable.Set.to_seq always)
   | Compile ->
       assert false

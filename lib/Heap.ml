@@ -34,9 +34,7 @@ module type S = sig
 
   val add : elm -> t -> t
   (** [add x h] is the same as [insert h x]. This function is intended
-    to be used with [fold_right]. *)
-
-  (** {6 Operations} *)
+    to be used with [fold_right]. O(log m) *)
 
   val find_min : t -> elm
   (** Find the minimal element of the heap. O(1)
@@ -46,16 +44,8 @@ module type S = sig
   (** Delete the minimal element of the heap. O(log n)
     @raise Invalid_argument ["del_min"] if the heap is empty *)
 
-  (** {6 Transformation} *)
-
-  val of_list : elm list -> t
-  (** Build a heap from a given list. O(n log n) *)
-
   val of_seq : elm Seq.t -> t
   (** Build a heap from a given sequence. O(n log n) *)
-
-  val to_list : t -> elm list
-  (** Enumerate the elements of the heap. O(n log n) *)
 end
 
 module Make (Ord : Map.OrderedType) = struct
@@ -142,18 +132,6 @@ module Make (Ord : Map.OrderedType) = struct
           else Some (find_min_tree data ~kfail ~ksuccess:(fun t -> t)).root
         in
         {size; data; mind} )
-
-  let to_list bh =
-    let rec aux acc bh =
-      if size bh = 0 then acc
-      else
-        let m = find_min bh in
-        let bh = del_min bh in
-        aux (m :: acc) bh
-    in
-    List.rev (aux [] bh)
-
-  let of_list l = List.fold_left insert empty l
 
   let of_seq l = Seq.fold_left insert empty l
 end

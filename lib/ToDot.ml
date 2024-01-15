@@ -1,6 +1,6 @@
 open Ast
 open Format
-open Scheduler
+open BlockSplitter
 
 let phi = (1. +. sqrt 5.) /. 2.
 
@@ -50,9 +50,9 @@ let pp_inputs ppf (p : Ast.program) =
     p.p_inputs
 
 let pp_arg ppf = function
-  | Avar v ->
+  | Variable v ->
       Variable.pp ppf v
-  | Aconst c ->
+  | Constant c ->
       fprintf ppf "%#x" c.value
 
 let pp_binop ppf = function
@@ -66,59 +66,65 @@ let pp_binop ppf = function
       pp_print_string ppf "Xor"
 
 let pp_eq ppf = function
-  | Earg a ->
+  | Arg a ->
       pp_arg ppf a
-  | Ereg v ->
+  | Reg v ->
       Variable.pp ppf v
-  | Enot a ->
+  | Not a ->
       pp_arg ppf a
-  | Ebinop (binop, lhs, rhs) ->
+  | Binop (binop, lhs, rhs) ->
       fprintf ppf "%a %a %a" pp_binop binop pp_arg lhs pp_arg rhs
-  | Emux (cond, tb, fb) ->
-      fprintf ppf "MUX %a %a %a" pp_arg cond pp_arg tb pp_arg fb
-  | Erom _ ->
+  | Mux md ->
+      fprintf ppf "MUX %a %a %a" pp_arg md.cond pp_arg md.true_b pp_arg
+        md.false_b
+  | Rom _ ->
       assert false
-  | Eram _ ->
+  | Ram _ ->
       assert false
-  | Econcat (lhs, rhs) ->
+  | Concat (lhs, rhs) ->
       fprintf ppf "CONCAT %a %a" pp_arg lhs pp_arg rhs
-  | Eslice s ->
+  | Slice s ->
       fprintf ppf "SLICE %i %i %a" s.min s.max pp_arg s.arg
-  | Eselect (index, arg) ->
+  | Select (index, arg) ->
       fprintf ppf "SELECT %i %a" index pp_arg arg
 
-let pp_arg_link ppf (src, dest) =
+let pp_arg_link ppf ?(weak = false) (src, dest) =
   match dest with
-  | Avar v ->
-      fprintf ppf "\t%a -> %a@." Variable.pp v Variable.pp src
-  | Aconst _ ->
+  | Variable v ->
+      if weak then
+        fprintf ppf "\t%a -> %a [style=dashed]@." Variable.pp v Variable.pp src
+      else fprintf ppf "\t%a -> %a@." Variable.pp v Variable.pp src
+  | Constant _ ->
       ()
 
 let pp_links ppf (src, eq) =
   match eq with
-  | Earg a ->
+  | Arg a ->
       pp_arg_link ppf (src, a)
-  | Ereg _ ->
-      ()
-  | Enot a ->
+  | Reg v ->
+      pp_arg_link ppf ~weak:true (src, Variable v)
+  | Not a ->
       pp_arg_link ppf (src, a)
-  | Ebinop (_, lhs, rhs) ->
+  | Binop (_, lhs, rhs) ->
       pp_arg_link ppf (src, lhs) ;
       pp_arg_link ppf (src, rhs)
-  | Emux (cond, tb, fb) ->
-      pp_arg_link ppf (src, cond) ;
-      pp_arg_link ppf (src, tb) ;
-      pp_arg_link ppf (src, fb)
-  | Erom _ ->
-      assert false
-  | Eram _ ->
-      assert false
-  | Econcat (lhs, rhs) ->
+  | Mux md ->
+      pp_arg_link ppf (src, md.cond) ;
+      pp_arg_link ppf (src, md.true_b) ;
+      pp_arg_link ppf (src, md.false_b)
+  | Rom d ->
+      pp_arg_link ppf (src, d.read_addr)
+  | Ram d ->
+      pp_arg_link ppf (src, d.read_addr) ;
+      pp_arg_link ppf ~weak:true (src, d.write_enable) ;
+      pp_arg_link ppf ~weak:true (src, d.write_addr) ;
+      pp_arg_link ppf ~weak:true (src, d.write_data)
+  | Concat (lhs, rhs) ->
       pp_arg_link ppf (src, lhs) ;
       pp_arg_link ppf (src, rhs)
-  | Eslice a ->
+  | Slice a ->
       pp_arg_link ppf (src, a.arg)
-  | Eselect (_, a) ->
+  | Select (_, a) ->
       pp_arg_link ppf (src, a)
 
 let pp_col ppf (h, s, v) = fprintf ppf "\"%f %f %f\"" h s v

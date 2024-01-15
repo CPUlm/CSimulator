@@ -1,6 +1,7 @@
-all: main
+all: csimulator
+sources  := $(shell find . -regextype sed -regex "\./\(lib\|bin\)/.*\|\./dune-project")
 
-main:
+csimulator: $(sources)
 	@dune build bin/main.exe
 	@cp -f _build/default/bin/main.exe csimulator
 
@@ -11,4 +12,7 @@ test: main
 clean:
 	@rm -rf _build/ csimulator
 
-.PHONY: all main test clean
+dev:
+	dune build -w
+
+.PHONY: all csimulator test clean
