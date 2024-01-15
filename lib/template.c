@@ -76,8 +76,8 @@ static int strendswith(const char *s, const char *t)
 {
     size_t slen = strlen(s);
     size_t tlen = strlen(t);
-    if (tlen > slen) return 1;
-    return strcmp(s + slen - tlen, t);
+    if (tlen > slen) return 0;
+    return strncmp(s + slen - tlen, t, tlen) == 0;
 }
 
 int main(int argc, char *argv[])
