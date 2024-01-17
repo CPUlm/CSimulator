@@ -1,0 +1,3 @@
+[submodule "SparseMemory"]
+	path = SparseMemory
+	url = https://github.com/CPUlm/SparseMemory
