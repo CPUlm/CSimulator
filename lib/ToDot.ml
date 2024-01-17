@@ -40,14 +40,14 @@ let hsv_to_rgb (h, s, v) =
   | _ ->
       assert false
 
-let pp_inputs ppf (p : Ast.program) =
-  Hashtbl.iter
-    (fun v () ->
+let pp_inputs ppf p =
+  Variable.Set.iter
+    (fun v ->
       fprintf ppf "\t%a  [label=<<b>%a</b><br/><i>size</i>: %i>" Variable.pp v
         Variable.pp v (Variable.size v) ;
-      if Hashtbl.mem p.p_outputs v then fprintf ppf ", shape=rect]@."
+      if Variable.Set.mem v p.output_vars then fprintf ppf ", shape=rect]@."
       else fprintf ppf "]\n@." )
-    p.p_inputs
+    p.input_vars
 
 let pp_arg ppf = function
   | Variable v ->
@@ -152,10 +152,10 @@ let pp_eqs ppf (p, color_map) =
       fprintf ppf "\t%a  [%alabel=<%a<br/><i>size</i>: %i<br/><i>eq</i>: %a>"
         Variable.pp v pp_node_col (color_map, v) Variable.pp v (Variable.size v)
         pp_eq exp ;
-      if Hashtbl.mem p.p_outputs v then fprintf ppf ", shape=rect]@."
+      if Variable.Set.mem v p.output_vars then fprintf ppf ", shape=rect]@."
       else fprintf ppf "]@." ;
       fprintf ppf "%a@." pp_links (v, exp) )
-    p.p_eqs
+    p.eqs
 
 let pp_graph ppf (p, colors) =
   fprintf ppf "digraph {%a@.%a}@." pp_inputs p pp_eqs (p, colors)

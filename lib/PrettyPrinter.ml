@@ -73,3 +73,60 @@ let print_program ff p =
     (fun v eq -> fprintf ff "%a = %a@." Variable.pp v print_exp eq)
     p.p_eqs ;
   fprintf ff "@."
+
+let center ?(filler = ' ') size pp i =
+  let text = Format.asprintf "%a" pp i in
+  let left_padding, right_padding =
+    let text_length = String.length text in
+    let left_size = (size - text_length) / 2 in
+    ( String.make left_size filler
+    , String.make (size - left_size - text_length) filler )
+  in
+  left_padding ^ text ^ right_padding
+
+let pp_color ppf (colors, program) =
+  let l =
+    Hashtbl.to_seq program.order
+    |> List.of_seq
+    |> List.sort (fun (_, i) (_, j) -> Int.compare i j)
+  in
+  let col_width = 20 in
+  let sep = String.make (5 * col_width) '-' in
+  Format.fprintf ppf "%s|%s|%s|%s|%s@.%s@."
+    (center col_width Format.pp_print_string "Variable")
+    (center col_width Format.pp_print_string "Ordering")
+    (center col_width Format.pp_print_string "Color")
+    (center col_width Format.pp_print_string "Input")
+    (center col_width Format.pp_print_string "Output")
+    sep ;
+  List.iter
+    BlockSplitter.(
+      fun (v, i) ->
+        let c =
+          match Hashtbl.find_opt colors v with
+          | Some (Color i) ->
+              string_of_int i
+          | None ->
+              "None"
+        in
+        Format.fprintf ppf "%s|%s|%s|%s|%s@."
+          (center col_width Variable.pp v)
+          (center col_width Format.pp_print_int i)
+          (center col_width Format.pp_print_string c)
+          (center col_width Format.pp_print_string
+             (if Variable.Set.mem v program.input_vars then "x" else "") )
+          (center col_width Format.pp_print_string
+             (if Variable.Set.mem v program.output_vars then "x" else "") ) )
+    l ;
+  Format.fprintf ppf "%s@." sep
+
+let pp_graph pp ppf g =
+  VarGraph.iter
+    (fun id par chi ->
+      Format.(
+        fprintf ppf "Node %a:@.@[<hv 2>Childrens: %a@;Parents: %a@]@." pp id
+          (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") Variable.pp)
+          (VarGraph.Set.to_list chi)
+          (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") Variable.pp)
+          (VarGraph.Set.to_list par) ) )
+    g

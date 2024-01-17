@@ -1,47 +1,18 @@
 open Ast
-module VarPos = DNF.Make (Variable)
 
-type axiom =
-  {reg_vars: Variable.set; out_vars: Variable.set; we_vars: Variable.set}
-
-let axioms p =
-  let out_vars = Variable.Set.of_seq (Hashtbl.to_seq_keys p.p_outputs) in
-  let reg_vars =
-    Hashtbl.fold
-      (fun _ eq set ->
-        match eq with Reg v -> Variable.Set.add v set | _ -> set )
-      p.p_eqs Variable.Set.empty
-  in
-  let we_vars =
-    Hashtbl.fold
-      (fun _ eq set ->
-        match eq with
-        | Ram v -> (
-          match v.write_enable with
-          | Variable v ->
-              Variable.Set.add v set
-          | Constant _ ->
-              set )
-        | _ ->
-            set )
-      p.p_eqs Variable.Set.empty
-  in
-  {reg_vars; out_vars; we_vars}
-
-let compute_pos p order =
-  let comp v1 v2 =
-    Int.compare (Hashtbl.find order v1) (Hashtbl.find order v2)
-  in
+let compute_pos program =
   let module VarHeap = Heap.Make (struct
     type t = Variable.t
 
-    let compare = comp
+    let compare v1 v2 =
+      Int.compare
+        (Hashtbl.find program.order v1)
+        (Hashtbl.find program.order v2)
   end) in
-  let p_axioms = axioms p in
   let var_pos =
     let var_pos = Hashtbl.create 17 in
     let () =
-      Hashtbl.iter (fun v () -> Hashtbl.add var_pos v VarPos.bot) p.p_vars
+      Variable.Set.iter (fun v -> Hashtbl.add var_pos v VarPos.bot) program.vars
     in
     var_pos
   in
@@ -58,7 +29,7 @@ let compute_pos p order =
           in
           heap
     in
-    match Hashtbl.find_opt p.p_eqs var with
+    match Hashtbl.find_opt program.eqs var with
     | None | Some (Reg _) ->
         heap
     | Some (Arg v | Not v | Select (_, v)) ->
@@ -109,24 +80,24 @@ let compute_pos p order =
       (fun v heap ->
         Hashtbl.replace var_pos v VarPos.top ;
         VarHeap.add v heap )
-      p_axioms.reg_vars VarHeap.empty
+      program.axioms.reg_vars VarHeap.empty
   in
   let heap =
     Variable.Set.fold
       (fun v heap ->
         Hashtbl.replace var_pos v VarPos.top ;
         VarHeap.add v heap )
-      p_axioms.out_vars heap
+      program.axioms.out_vars heap
   in
   let heap =
     Variable.Set.fold
       (fun v heap ->
         Hashtbl.replace var_pos v VarPos.top ;
         VarHeap.add v heap )
-      p_axioms.we_vars heap
+      program.axioms.we_vars heap
   in
   let () = loop heap in
-  (var_pos, p_axioms)
+  var_pos
 
 let split_nodes vpos =
   Hashtbl.fold
@@ -137,21 +108,12 @@ let split_nodes vpos =
     vpos
     Variable.Set.(empty, empty)
 
-let regroup_functions () = assert false
+module VPosSet = Set.Make (VarPos)
 
-let center ?(filler = ' ') size pp i =
-  let text = Format.asprintf "%a" pp i in
-  let left_padding, right_padding =
-    let text_length = String.length text in
-    let left_size = (size - text_length) / 2 in
-    ( String.make left_size filler
-    , String.make (size - left_size - text_length) filler )
-  in
-  left_padding ^ text ^ right_padding
-
-let pp_pos ppf (var_pos, top, p) =
+let pp_pos ppf (var_pos, program) =
   let l =
-    Hashtbl.to_seq top |> List.of_seq
+    Hashtbl.to_seq program.order
+    |> List.of_seq
     |> List.sort (fun (_, i) (_, j) -> Int.compare i j)
   in
   let col_width = 20 in
@@ -173,9 +135,9 @@ let pp_pos ppf (var_pos, top, p) =
         (center col_width Variable.pp v)
         (center col_width Format.pp_print_int i)
         (center col_width Format.pp_print_string
-           (if Hashtbl.mem p.p_inputs v then "x" else "") )
+           (if Variable.Set.mem v program.input_vars then "x" else "") )
         (center col_width Format.pp_print_string
-           (if Hashtbl.mem p.p_outputs v then "x" else "") )
+           (if Variable.Set.mem v program.output_vars then "x" else "") )
         c () )
     l ;
   Format.fprintf ppf "%s@." sep

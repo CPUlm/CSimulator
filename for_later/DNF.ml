@@ -3,23 +3,27 @@ module type S = sig
 
   type literal = True of var | False of var
 
-  type dnf
+  type t
 
-  val top : dnf
+  val top : t
 
-  val bot : dnf
+  val bot : t
 
-  val ( &&& ) : literal -> dnf -> dnf
+  val ( &&& ) : literal -> t -> t
 
-  val ( ||| ) : dnf -> dnf -> dnf
+  val ( ||| ) : t -> t -> t
 
-  val of_literal : literal -> dnf
+  val of_literal : literal -> t
 
-  val is_bot : dnf -> bool
+  val is_bot : t -> bool
 
-  val is_top : dnf -> bool
+  val is_top : t -> bool
 
-  val pp : (Format.formatter -> var -> unit) -> Format.formatter -> dnf -> unit
+  val compare : t -> t -> int
+
+  val is_satified_by : t -> t -> bool
+
+  val pp : (Format.formatter -> var -> unit) -> Format.formatter -> t -> unit
 end
 
 module Make (Var : Set.OrderedType) = struct
@@ -40,29 +44,34 @@ module Make (Var : Set.OrderedType) = struct
           -1
   end)
 
-  type dnf = Conjunction.t list
+  module DNF = Set.Make (Conjunction)
+
+  type t = DNF.t
 
   (** top *)
-  let top = [Conjunction.empty]
+  let top = DNF.singleton Conjunction.empty
 
   (** bot *)
-  let bot = []
+  let bot = DNF.empty
 
-  let of_literal l = [Conjunction.singleton l]
+  let of_literal l = DNF.singleton (Conjunction.singleton l)
 
   let is_top v =
-    match v with [x] when Conjunction.is_empty x -> true | _ -> false
+    if DNF.cardinal v = 1 then
+      let x = DNF.choose v in
+      Conjunction.is_empty x
+    else false
 
-  let is_bot v = match v with [] -> true | _ -> false
+  let is_bot = DNF.is_empty
 
   (** Conjunction of a formula with a litteral *)
   let ( &&& ) lit f =
     let opp_lit = match lit with True v -> False v | False v -> True v in
-    List.fold_left
-      (fun conjs c ->
+    DNF.fold
+      (fun c conjs ->
         if Conjunction.mem opp_lit c then conjs
-        else Conjunction.add lit c :: conjs )
-      [] f
+        else DNF.add (Conjunction.add lit c) conjs )
+      f DNF.empty
 
   (** Disjunctions of two formulas *)
   let ( ||| ) f1 f2 =
@@ -70,13 +79,21 @@ module Make (Var : Set.OrderedType) = struct
       | [] ->
           acc
       | hd :: tl ->
-          if List.exists (fun s -> Conjunction.subset s hd) acc then
+          if DNF.exists (fun s -> Conjunction.subset s hd) acc then
             simplify acc tl
           else if List.exists (fun s -> Conjunction.subset s hd) tl then
             simplify acc tl
-          else simplify (hd :: acc) tl
+          else simplify DNF.(add hd acc) tl
     in
-    simplify [] (f1 @ f2)
+    simplify DNF.empty (DNF.to_list f1 @ DNF.to_list f2)
+
+  let compare = DNF.compare
+
+  let is_satified_by a b =
+    DNF.for_all
+      (fun b_conj ->
+        DNF.exists (fun a_conj -> Conjunction.subset b_conj a_conj) a )
+      b
 
   let pp_conf pp ppf conj =
     if Conjunction.is_empty conj then Format.pp_print_string ppf "⊤"
@@ -91,14 +108,10 @@ module Make (Var : Set.OrderedType) = struct
         ppf (Conjunction.to_list conj)
 
   let pp p ppf f =
-    if f = [] then Format.pp_print_string ppf "⊥"
+    if DNF.is_empty f then Format.pp_print_string ppf "⊥"
     else
-      match f with
-      | [x] when Conjunction.is_empty x ->
-          Format.pp_print_string ppf "⊤"
-      | _ ->
-          Format.pp_print_list
-            ~pp_sep:(fun ppf () -> Format.fprintf ppf " ∨ ")
-            (fun ppf -> Format.fprintf ppf "(%a)" (pp_conf p))
-            ppf f
+      Format.pp_print_list
+        ~pp_sep:(fun ppf () -> Format.fprintf ppf " ∨ ")
+        (fun ppf -> Format.fprintf ppf "(%a)" (pp_conf p))
+        ppf (DNF.to_list f)
 end

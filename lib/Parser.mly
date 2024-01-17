@@ -10,7 +10,7 @@
 %token EOF
 
 %start program             /* the entry point */
-%type <Ast.program> program
+%type <Ast.mut_program> program
 
 %%
 program:

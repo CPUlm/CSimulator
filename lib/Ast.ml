@@ -26,8 +26,22 @@ type exp =
   | Select of int * arg
 (* SELECT i a : ith element of a *)
 
-type program =
+type mut_program =
   { p_eqs: (Variable.t, exp) Hashtbl.t
   ; p_inputs: (Variable.t, unit) Hashtbl.t (* inputs *)
   ; p_outputs: (Variable.t, unit) Hashtbl.t (* outputs *)
   ; p_vars: (Variable.t, unit) Hashtbl.t (* all variables *) }
+
+module VarGraph = Graph.Make (Variable)
+
+type axiom =
+  {reg_vars: Variable.set; out_vars: Variable.set; we_vars: Variable.set}
+
+type program =
+  { input_vars: Variable.set
+  ; output_vars: Variable.set
+  ; eqs: (Variable.t, exp) Hashtbl.t
+  ; vars: Variable.set
+  ; axioms: axiom
+  ; deps_graph: VarGraph.t
+  ; order: (Variable.t, int) Hashtbl.t }

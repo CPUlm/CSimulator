@@ -1,11 +1,13 @@
 open Ast
 
+exception ParsingError of string
+
 let get_var n =
   match Variable.exists n with
   | Some v ->
       v
   | None ->
-      failwith ("Unknown variable: " ^ n)
+      raise (ParsingError ("Unknown variable: " ^ n))
 
 let set_from_list s =
   let set = Hashtbl.create 17 in
@@ -13,7 +15,8 @@ let set_from_list s =
     List.iter
       (fun v ->
         let v = get_var v in
-        if Hashtbl.mem set v then failwith "Multiple time the same var in decl"
+        if Hashtbl.mem set v then
+          raise (ParsingError "Multiple time the same var in decl")
         else Hashtbl.add set v () )
       s
   in
@@ -28,7 +31,7 @@ let mk_prog inputs outputs vars eqs_list =
       (fun (v, eq) ->
         match Hashtbl.find_opt p_eqs v with
         | Some _ ->
-            failwith "Already defined variable"
+            raise (ParsingError "Already defined variable")
         | None ->
             Hashtbl.add p_eqs v eq )
       eqs_list
@@ -42,7 +45,7 @@ let mk_prog inputs outputs vars eqs_list =
           ()
         else if Hashtbl.mem p_inputs v then (* Variable defined as a input *)
           ()
-        else failwith "Undefined Variable Value" )
+        else raise (ParsingError "Undefined Variable Value") )
       p_vars
   in
   {p_eqs; p_inputs; p_outputs; p_vars}
@@ -64,38 +67,45 @@ let mk_reg x =
 
 let mk_and x y =
   let s = sizeof_arg x in
-  if s <> sizeof_arg y then failwith "Size Missmatch" else (Binop (And, x, y), s)
+  if s <> sizeof_arg y then raise (ParsingError "Size Missmatch")
+  else (Binop (And, x, y), s)
 
 let mk_or x y =
   let s = sizeof_arg x in
-  if s <> sizeof_arg y then failwith "Size Missmatch" else (Binop (Or, x, y), s)
+  if s <> sizeof_arg y then raise (ParsingError "Size Missmatch")
+  else (Binop (Or, x, y), s)
 
 let mk_nand x y =
   let s = sizeof_arg x in
-  if s <> sizeof_arg y then failwith "Size Missmatch"
+  if s <> sizeof_arg y then raise (ParsingError "Size Missmatch")
   else (Binop (Nand, x, y), s)
 
 let mk_xor x y =
   let s = sizeof_arg x in
-  if s <> sizeof_arg y then failwith "Size Missmatch" else (Binop (Xor, x, y), s)
+  if s <> sizeof_arg y then raise (ParsingError "Size Missmatch")
+  else (Binop (Xor, x, y), s)
 
 let mk_mux x y z =
   let s = sizeof_arg y in
-  if s <> sizeof_arg z then failwith "Size Missmatch"
-  else if sizeof_arg x <> 1 then failwith "Mux with a variable not of size 1"
+  if s <> sizeof_arg z then raise (ParsingError "Size Missmatch")
+  else if sizeof_arg x <> 1 then
+    raise (ParsingError "Mux with a variable not of size 1")
   else (Mux {cond= x; true_b= y; false_b= z}, s)
 
 let mk_rom addr_size word_size read_addr =
-  if sizeof_arg read_addr <> addr_size then failwith "Read Address missmatch"
+  if sizeof_arg read_addr <> addr_size then
+    raise (ParsingError "Read Address missmatch")
   else (Rom {addr_size; word_size; read_addr}, word_size)
 
 let mk_ram addr_size word_size read_addr write_enable write_addr write_data =
-  if sizeof_arg read_addr <> addr_size then failwith "Read Address missmatch"
+  if sizeof_arg read_addr <> addr_size then
+    raise (ParsingError "Read Address missmatch")
   else if sizeof_arg write_addr <> addr_size then
-    failwith "Write Address missmatch"
-  else if sizeof_arg write_enable <> 1 then failwith "Write Enable not a bit"
+    raise (ParsingError "Write Address missmatch")
+  else if sizeof_arg write_enable <> 1 then
+    raise (ParsingError "Write Enable not a bit")
   else if sizeof_arg write_data <> word_size then
-    failwith "Write data size missmatch"
+    raise (ParsingError "Write data size missmatch")
   else
     ( Ram {addr_size; word_size; read_addr; write_enable; write_addr; write_data}
     , word_size )
@@ -105,18 +115,21 @@ let mk_concat x y =
   (Concat (x, y), s)
 
 let mk_select idx x =
-  if idx < 0 then failwith "Select with negative index"
-  else if sizeof_arg x <= idx then failwith "Select with index too large"
+  if idx < 0 then raise (ParsingError "Select with negative index")
+  else if sizeof_arg x <= idx then
+    raise (ParsingError "Select with index too large")
   else (Select (idx, x), 1)
 
 let mk_slice min max x =
-  if min > max then failwith "Slice with min > max"
-  else if sizeof_arg x <= max then failwith "Slice with max too large"
+  if min > max then raise (ParsingError "Slice with min > max")
+  else if sizeof_arg x <= max then
+    raise (ParsingError "Slice with max too large")
   else (Slice {min; max; arg= x}, max - min + 1)
 
 let mk_expr v (exp, exp_size) =
   let v = get_var v in
-  if Variable.size v <> exp_size then failwith "Equation size Missmatch"
+  if Variable.size v <> exp_size then
+    raise (ParsingError "Equation size Missmatch")
   else (v, exp)
 
 let mk_var v = Variable (get_var v)
