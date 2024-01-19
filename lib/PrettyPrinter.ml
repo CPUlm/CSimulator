@@ -126,7 +126,7 @@ let pp_graph pp ppf g =
       Format.(
         fprintf ppf "Node %a:@.@[<hv 2>Childrens: %a@;Parents: %a@]@." pp id
           (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") Variable.pp)
-          (VarGraph.Set.to_list chi)
+          (VarGraph.Set.elements chi)
           (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") Variable.pp)
-          (VarGraph.Set.to_list par) ) )
+          (VarGraph.Set.elements par) ) )
     g

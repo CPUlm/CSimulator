@@ -237,7 +237,7 @@ let do_cycle_fun ppf genv =
   let () =
     if Variable.Set.is_empty genv.axioms.reg_vars then ()
     else
-      let reg_vars = Variable.Set.to_list genv.axioms.reg_vars in
+      let reg_vars = Variable.Set.elements genv.axioms.reg_vars in
       fprintf ppf "/* Compute Registers */@,%a@,@,"
         (pp_print_list (fun ppf v ->
              fprintf ppf "@[<h>%a = %a;@]"
@@ -248,7 +248,7 @@ let do_cycle_fun ppf genv =
   let () =
     if Variable.Set.is_empty genv.axioms.out_vars then ()
     else
-      let outvars = Variable.Set.to_list genv.axioms.out_vars in
+      let outvars = Variable.Set.elements genv.axioms.out_vars in
       fprintf ppf
         "/* Compute Outputs */@,\
          %a@,\
@@ -443,7 +443,7 @@ let create_env (program : program) blocks =
       program.vars
   in
   let var_table_index = Hashtbl.create 17 in
-  let blocks = Variable.Map.to_list blocks in
+  let blocks = Variable.Map.bindings blocks in
   let blocks =
     List.mapi
       (fun index (v, b) ->
