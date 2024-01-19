@@ -201,7 +201,7 @@ tags
 
 # End of https://www.toptal.com/developers/gitignore/api/ocaml,c,visualstudiocode,jetbrains+all,vim,emacs
 
-# **/*.net
+**/*.net
 **/*.netlist
 !test/**/*.net
 
@@ -209,4 +209,6 @@ csimulator
 dot.pdf
 netlist
 
-# build/
+build/
+*.po
+*.do
