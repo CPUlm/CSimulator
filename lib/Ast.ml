@@ -35,7 +35,11 @@ type mut_program =
 module VarGraph = Graph.Make (Variable)
 
 type axiom =
-  {reg_vars: Variable.set; out_vars: Variable.set; we_vars: Variable.set}
+  { reg_vars: Variable.set
+  ; out_vars: Variable.set
+  ; w_enable: Variable.t option
+  ; w_addr: Variable.t option
+  ; w_data: Variable.t option }
 
 type program =
   { input_vars: Variable.set
@@ -44,4 +48,6 @@ type program =
   ; vars: Variable.set
   ; axioms: axiom
   ; deps_graph: VarGraph.t
-  ; order: (Variable.t, int) Hashtbl.t }
+  ; order: (Variable.t, int) Hashtbl.t
+  ; rom_var: Variable.t option
+  ; ram_var: Variable.t option }

@@ -18,6 +18,28 @@ let fresh_color =
   fun () -> incr cpt ; Color !cpt
 
 let split program =
+  let need_block =
+    Variable.Set.(union program.axioms.out_vars program.axioms.reg_vars)
+  in
+  let need_block =
+    Variable.Set.(
+      Option.fold ~none:need_block
+        ~some:(fun v -> add v need_block)
+        program.axioms.w_enable )
+  in
+  let need_block =
+    Variable.Set.(
+      Option.fold ~none:need_block
+        ~some:(fun v -> add v need_block)
+        program.axioms.w_addr )
+  in
+  (* [need_block] are variable that need to be in a block by themselves.*)
+  let need_block =
+    Variable.Set.(
+      Option.fold ~none:need_block
+        ~some:(fun v -> add v need_block)
+        program.axioms.w_data )
+  in
   let module VarHeap = Heap.Make (struct
     type t = Variable.t
 
@@ -50,7 +72,8 @@ let split program =
         let parents = VarGraph.parents program.deps_graph node in
         (* If :
            - this node is not colored
-           - all its children are colored with the current fresh color *)
+           - all its children are colored with the current fresh color
+           - this node does not need a block *)
         if
           (not (Hashtbl.mem colors node))
           && VarGraph.Set.for_all
@@ -61,6 +84,7 @@ let split program =
                  | None ->
                      false )
                childrens
+          && not (Variable.Set.mem node need_block)
         then (
           (* We color it with the fresh color *)
           Hashtbl.add colors node fresh_col ;
@@ -94,15 +118,10 @@ let split program =
       in
       loop acc to_process
   in
-  let to_process =
-    VarHeap.of_seq
-      Variable.Set.(
-        union
-          (union program.axioms.we_vars program.axioms.out_vars)
-          program.axioms.reg_vars
-        |> to_seq )
-  in
+  (* We first color the one that needs a block. *)
+  let to_process = VarHeap.of_seq (Variable.Set.to_seq need_block) in
   let blocks = loop [] to_process in
+  (* Then all the others *)
   let to_process = VarHeap.of_seq (Hashtbl.to_seq_keys program.eqs) in
   let blocks = loop blocks to_process in
   let blocks =

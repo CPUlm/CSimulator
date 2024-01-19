@@ -19,22 +19,39 @@ let axioms filtered p =
             set )
       p.p_eqs Variable.Set.empty
   in
-  let we_vars =
+  let dram, drom =
     Hashtbl.fold
-      (fun _ eq set ->
-        match eq with
-        | Ram v -> (
-          match v.write_enable with
-          | Variable v ->
-              assert (not (filtered v)) ;
-              Variable.Set.add v set
-          | Constant _ ->
-              set )
+      (fun v eq (dram, drom) ->
+        match (eq, dram, drom) with
+        | Ram rd, None, _ ->
+            (Some (v, rd.write_enable, rd.write_addr, rd.write_data), drom)
+        | Ram _, Some _, _ ->
+            failwith "Multiples RAM Blocks."
+        | Rom _, _, None ->
+            (dram, Some v)
+        | Rom _, _, Some _ ->
+            failwith "Multiples ROM Blocks."
         | _ ->
-            set )
-      p.p_eqs Variable.Set.empty
+            (dram, drom) )
+      p.p_eqs (None, None)
   in
-  {reg_vars; out_vars; we_vars}
+  let w_enable, w_addr, w_data =
+    match dram with
+    | None ->
+        (None, None, None)
+    | Some (_, we, wa, wd) ->
+        let w_enable =
+          match we with Constant _ -> None | Variable v -> Some v
+        in
+        let w_addr =
+          match wa with Constant _ -> None | Variable v -> Some v
+        in
+        let w_data =
+          match wd with Constant _ -> None | Variable v -> Some v
+        in
+        (w_enable, w_addr, w_data)
+  in
+  ({reg_vars; out_vars; w_enable; w_addr; w_data}, dram, drom)
 
 (** Compute the set of variable needed to compute the value of an expression. *)
 let var_needed eq =
@@ -180,7 +197,17 @@ let to_graph ?(clean = true) p =
       (fun v eq -> if filtered v then None else Some eq)
       eqs
   in
-  let axioms = axioms filtered p in
+  let axioms, ramd, rom_var = axioms filtered p in
+  let ram_var = Option.map (fun (v, _, _, _) -> v) ramd in
   let deps_graph = make_graph filtered p in
   let order = VarGraph.topological deps_graph in
-  ({input_vars; output_vars; vars; deps_graph; order; axioms; eqs}, nb_useless)
+  ( { input_vars
+    ; output_vars
+    ; vars
+    ; deps_graph
+    ; order
+    ; axioms
+    ; eqs
+    ; ram_var
+    ; rom_var }
+  , nb_useless )

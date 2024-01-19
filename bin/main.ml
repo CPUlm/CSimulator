@@ -101,4 +101,5 @@ let () =
         nb_useless
   | Compile ->
       let _, blocks = BlockSplitter.split program in
-      ToC.pp_prog Format.std_formatter (program, blocks)
+      let genv = ToC.create_env program blocks in
+      ToC.pp_prog Format.std_formatter genv

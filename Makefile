@@ -5,13 +5,24 @@ csimulator: $(sources)
 	@dune build bin/main.exe
 	@cp -f _build/default/bin/main.exe csimulator
 
-test: main
-	@echo "\033[0;34mTests de simulation :\033[0m"
-	@bash ./run_tests.sh
-
 clean:
-	@rm -rf _build/ csimulator
+	@rm -rf _build/ csimulator build/
 
+build: csimulator
+ifeq ($(file),)
+	@echo "Missign file name. Please add 'file=(file name)'"
+else
+	@echo "Building netlist '$(file)'..."
+	@mkdir -p build
+	@cp clib/main.c build/
+	@cp clib/commons.h build/
+	@cp clib/sparse_memory/memory.h build/
+	@cp clib/sparse_memory/memory.c build/
+	@cp clib/sparse_memory/screen.h build/
+	@cp clib/sparse_memory/screen.c build/
+	./csimulator $(file) > build/logic.c
+	cd build/ && clang -g *.c
+endif
 dev:
 	dune build -w
 
