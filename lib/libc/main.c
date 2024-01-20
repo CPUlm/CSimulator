@@ -69,7 +69,14 @@ const char *to_binary_str(value_t v, bus_size_t size)
     return strncpy(str, "0b", 2);
 }
 
-void print_value(FILE *stream, value_t v, bus_size_t size)
+void print_header(FILE *stream)
+{
+    fprintf(stream, "\n"
+                    "       Outputs       |               Binary               | Hexadecimal |    Signed Decimal    |   Unsigned Decimal   |\n"
+                    "---------------------+------------------------------------+-------------+----------------------+----------------------+\n");
+}
+
+void print_variable(FILE *stream, const char *var_name, value_t v, bus_size_t size)
 {
     uint64_t un_sigval = v;
     int64_t sigval = (int64_t)v;
@@ -80,11 +87,13 @@ void print_value(FILE *stream, value_t v, bus_size_t size)
         sigval = (int64_t)(-1) << size | sigval;
     }
 
-#ifdef MODE_64_BIT
-    fprintf(stream, "%66s, Hexadecimal: %#18lx, Signed Decimal: % 20ld, Unsigned Decimal: % 20ld", to_binary_str(v, size), v, un_sigval, sigval);
-#else
-    fprintf(stream, "%34s, Hexadecimal: %#10lx, Signed Decimal: % 20ld, Unsigned Decimal: % 20ld", to_binary_str(v, size), v, un_sigval, sigval);
-#endif
+    fprintf(stream,
+            "=>  %-16s | %34s | %#11lx | % 20ld | % 20ld |\n",
+            var_name,
+            to_binary_str(v, size),
+            v,
+            un_sigval,
+            sigval);
 }
 
 value_t get_input(const char *var_name, bus_size_t bus_size)

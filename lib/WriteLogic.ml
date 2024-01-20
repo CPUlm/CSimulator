@@ -232,13 +232,6 @@ let do_cycle_fun ppf genv =
     | Input ->
         fprintf ppf "%s[%i]" inputs_values (Variable.Map.find v genv.inputs)
   in
-  let longuest_var_name =
-    Variable.Set.fold
-      (fun v acc ->
-        let name = asprintf "%a" Variable.pp v in
-        max acc (String.length name) )
-      genv.axioms.out_vars 0
-  in
   let () =
     fprintf ppf
       "/* Cycle Function */@,\
@@ -280,7 +273,7 @@ let do_cycle_fun ppf genv =
     if Variable.Set.is_empty genv.axioms.out_vars then ()
     else
       let outvars = Variable.Set.elements genv.axioms.out_vars in
-      fprintf ppf "/* Compute Outputs */@,%a@,@,%a@,@,"
+      fprintf ppf "/* Compute Outputs */@,%a@,@,print_header(stdout);@,%a@,@,"
         (pp_print_list (fun ppf v ->
              fprintf ppf "@[<h>value_t %a = %a;@]" var_out v get_var_value v )
         )
@@ -288,18 +281,8 @@ let do_cycle_fun ppf genv =
         (pp_print_list
            ~pp_sep:(fun ppf () -> fprintf ppf "@,@,")
            (fun ppf v ->
-             let var_name =
-               let text = asprintf "%a:" Variable.pp v in
-               text
-               ^ String.make (longuest_var_name - String.length text + 1) ' '
-             in
-             fprintf ppf
-               "@[<v>{@;\
-                <0 4>@[<v>fprintf(stdout, \"=> %s \");@,\
-                print_value(stdout, %a, %i);@,\
-                fprintf(stdout, \"\\n\");@]@,\
-                }@]"
-               var_name var_out v (Variable.size v) ) )
+             fprintf ppf "print_variable(stdout, \"%a\", %a, %i);" Variable.pp v
+               var_out v (Variable.size v) ) )
         outvars
   in
   let pp_arg ppf = function
