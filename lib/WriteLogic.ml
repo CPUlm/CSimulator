@@ -31,7 +31,8 @@ type global_env =
   ; vars: Variable.set
   ; inputs: int Variable.map
   ; blocks: block list
-  ; with_screen: bool }
+  ; with_screen: bool
+  ; with_pause: bool }
 
 let arg_size = function Variable v -> Variable.size v | Constant c -> c.size
 
@@ -279,9 +280,7 @@ let do_cycle_fun ppf genv =
              fprintf ppf "@[<h>value_t %a = %a;@]" var_out v get_var_value v )
         )
         outvars
-        (pp_print_list
-           ~pp_sep:(fun ppf () -> fprintf ppf "@,@,")
-           (fun ppf v ->
+        (pp_print_list (fun ppf v ->
              fprintf ppf "print_variable(stdout, \"%a\", %a, %i);" Variable.pp v
                var_out v (Variable.size v) ) )
         outvars
@@ -301,23 +300,15 @@ let do_cycle_fun ppf genv =
           (fun ppf ram_var ->
             match Hashtbl.find genv.var_eq ram_var with
             | Ram ramd ->
-                let max_addr =
-                  Int64.(sub (shift_left one ramd.addr_size) one)
-                in
                 fprintf ppf
-                  "@[<v>if (%a) {@;\
-                   <0 4>@[<v>value_t write_address = %a;@,\
-                   ram_set(%a, write_address, %a);@,\
-                   if (write_address == %Lu) {@;\
-                   <0 4>@[<h>return true;@]@,\
-                   }@]@,\
-                   }@]@,"
-                  pp_arg ramd.write_enable pp_arg ramd.write_addr var_ram
-                  ram_var pp_arg ramd.write_data max_addr
+                  "@[<v>if (%a) {@;<0 4>@[<h>ram_set(%a, %a, %a);@]@,}@]@,"
+                  pp_arg ramd.write_enable var_ram ram_var pp_arg
+                  ramd.write_addr pp_arg ramd.write_data
             | _ ->
                 assert false )
           ram_var
   in
+  let () = if genv.with_pause then fprintf ppf "getchar();@," in
   let () = fprintf ppf "return false;@]@,}@]@,@," in
   ()
 
@@ -357,12 +348,11 @@ let init_ram_fun ppf genv =
              <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
              exit(1);@]@,\
              } else {@;\
-             <0 4>@[<v>%a = ram_from_file(ram_file);@,"
-            var_ram ram_var
+             <0 4>@[<v>%a = ram_from_file(ram_file);" var_ram ram_var
         in
         let () =
           if genv.with_screen then
-            fprintf ppf "screen_init_with_ram_mapping(%a);@," var_ram ram_var
+            fprintf ppf "@,screen_init_with_ram_mapping(%a);" var_ram ram_var
         in
         let () = fprintf ppf "@]@,}@]" in
         ()
@@ -452,7 +442,7 @@ let pp_prog ppf genv =
   let () = end_simul_fun ppf genv in
   fprintf ppf "@]@."
 
-let create_env (program : program) blocks with_screen =
+let create_env (program : program) blocks with_screen with_pause =
   let var_pos = Hashtbl.create 17 in
   let () =
     Variable.Set.iter
@@ -495,4 +485,5 @@ let create_env (program : program) blocks with_screen =
   ; vars= program.vars
   ; blocks
   ; inputs
-  ; with_screen }
+  ; with_screen
+  ; with_pause }

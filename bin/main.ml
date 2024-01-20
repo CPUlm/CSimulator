@@ -1,6 +1,6 @@
 open LibCNetlist
 
-type act = PrintProg | PrintBlocks | PrintColorTable | PrintUseless | Compile
+type act = PrintProg | PrintBlocks | PrintColorTable | PrintStats | Compile
 
 let action = ref Compile
 
@@ -9,6 +9,8 @@ let quiet = ref false
 let screen = ref true
 
 let cleanup = ref true
+
+let pause = ref false
 
 let usage =
   "usage: csimulator [options] file.net [out_dir]\n\n\
@@ -37,9 +39,12 @@ let spec =
     ; ( "--disable-screen"
       , Arg.Unit (fun () -> screen := false)
       , " Disable the screen in the output." )
-    ; ( "--useless-stats"
-      , Arg.Unit (fun () -> action := PrintUseless)
-      , " Output the number of useless variables." )
+    ; ( "--stats"
+      , Arg.Unit (fun () -> action := PrintStats)
+      , " Print stats of the NetList." )
+    ; ( "--pause"
+      , Arg.Unit (fun () -> pause := true)
+      , " Pause the program at each cycle." )
     ; ("--quiet", Arg.Set quiet, " Produce a quiet program.") ]
 
 let filename, out_dir =
@@ -118,15 +123,34 @@ let () =
       Format.printf "Nb Colors: %i@.@.%a"
         (Variable.Map.cardinal blocks)
         PrettyPrinter.pp_color (colors, program)
-  | PrintUseless ->
-      Format.printf "Number of:@. - Variables: %i@. - Useless variables: %i@."
+  | PrintStats ->
+      let _, b = BlockSplitter.split program in
+      let rep = Hashtbl.create 17 in
+      let () =
+        Variable.Map.iter
+          (fun _ block ->
+            let nb_var = Variable.Set.cardinal BlockSplitter.(block.members) in
+            match Hashtbl.find_opt rep nb_var with
+            | Some nb ->
+                Hashtbl.replace rep nb_var (nb + 1)
+            | None ->
+                Hashtbl.add rep nb_var 1 )
+          b
+      in
+      Format.printf
+        "Number of:@. - Variables: %i@. - Useless variables: %i@. - Number of \
+         Blocks: %i@.@.Repartition:@.@[<v>%a@]@."
         (Variable.Set.cardinal program.vars + nb_useless)
-        nb_useless
+        nb_useless (Variable.Map.cardinal b)
+        (Format.pp_print_list (fun ppf (nb_var, nb_block) ->
+             Format.fprintf ppf "Block of %i vars: %i" nb_var nb_block ) )
+        ( Hashtbl.to_seq rep |> List.of_seq
+        |> List.sort (fun a b -> Int.compare (fst a) (fst b)) )
   | Compile -> (
     match out_dir with
     | None ->
         assert false
     | Some out_dir ->
         let _, blocks = BlockSplitter.split program in
-        let genv = WriteLogic.create_env program blocks !screen in
+        let genv = WriteLogic.create_env program blocks !screen !pause in
         ToC.export_into out_dir genv )
