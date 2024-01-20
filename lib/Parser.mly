@@ -1,26 +1,5 @@
 %{
- open Ast
-
- let bool_of_string s = match s with
-  | "t" | "1" -> true
-  | "f" | "0" -> false
-  | _ -> raise Parsing.Parse_error
-
- let bool_array_of_string s =
-   let a = Array.make (String.length s) false in
-   for i = 0 to String.length s - 1 do
-     a.(i) <- bool_of_string (String.sub s i 1)
-   done;
-   a
-
- let value_of_const s =
-   let n = String.length s in
-   if n = 0 then
-     raise Parsing.Parse_error
-   else if n = 1 then
-     VBit (bool_of_string s)
-   else
-     VBitArray (bool_array_of_string s)
+ open ParserUtils
 %}
 
 %token <string> CONST
@@ -31,46 +10,41 @@
 %token EOF
 
 %start program             /* the entry point */
-%type <Ast.program> program
+%type <Ast.mut_program> program
 
 %%
 program:
   INPUT inp=separated_list(COMMA, NAME)
-    OUTPUT out=separated_list(COMMA, NAME)
-    VAR vars=separated_list(COMMA, var) IN eqs=list(equ) EOF
-    { { p_eqs = eqs; p_vars = Env.of_list vars; p_inputs = inp; p_outputs = out; } }
+  OUTPUT out=separated_list(COMMA, NAME)
+  VAR vars=separated_list(COMMA, var)
+  IN eqs=list(equ)
+  EOF { mk_prog inp out vars eqs }
 
-equ:
-  x=NAME EQUAL e=exp { (x, e) }
+equ: x=NAME EQUAL e=exp   { mk_expr x e }
 
 exp:
-  | a=arg { Earg a }
-  | NOT x=arg { Enot x }
-  | REG x=NAME { Ereg x }
-  | AND x=arg y=arg { Ebinop(And, x, y) }
-  | OR x=arg y=arg { Ebinop(Or, x, y) }
-  | NAND x=arg y=arg { Ebinop(Nand, x, y) }
-  | XOR x=arg y=arg { Ebinop(Xor, x, y) }
-  | MUX x=arg y=arg z=arg { Emux(x, y, z) }
-  | ROM addr=int word=int ra=arg
-    { Erom(addr, word, ra) }
-  | RAM addr=int word=int ra=arg we=arg wa=arg data=arg
-    { Eram(addr, word, ra, we, wa, data) }
-  | CONCAT x=arg y=arg
-     { Econcat(x, y) }
-  | SELECT idx=int x=arg
-     { Eselect (idx, x) }
-  | SLICE min=int max=int x=arg
-     { Eslice (min, max, x) }
+  | a=arg                                       { mk_arg a }
+  | NOT x=arg                                   { mk_not x }
+  | REG x=NAME                                  { mk_reg x }
+  | AND x=arg y=arg                             { mk_and x y }
+  | OR x=arg y=arg                              { mk_or x y }
+  | NAND x=arg y=arg                            { mk_nand x y }
+  | XOR x=arg y=arg                             { mk_xor x y }
+  | MUX x=arg y=arg z=arg                       { mk_mux x y z }
+  | ROM a=int w=int r=arg                       { mk_rom a w r }
+  | RAM a=int w=int r=arg we=arg wa=arg wd=arg  { mk_ram a w r we wa wd }
+  | CONCAT x=arg y=arg                          { mk_concat x y }
+  | SELECT idx=int x=arg                        { mk_select idx x }
+  | SLICE min=int max=int x=arg                 { mk_slice min max x }
 
 arg:
-  | n=CONST { Aconst (value_of_const n) }
-  | id=NAME { Avar id }
+  | n=CONST   { mk_const n }
+  | v=NAME    { mk_var v }
 
-var: x=NAME ty=ty_exp { (x, ty) }
+var: x=NAME ty=ty_exp { Variable.fresh x ty }
 ty_exp:
-  | /*empty*/ { TBit }
-  | COLON n=int { TBitArray n }
+  | /*empty*/ { 1 }
+  | COLON n=int { n }
 
 int:
   | c=CONST { int_of_string c }

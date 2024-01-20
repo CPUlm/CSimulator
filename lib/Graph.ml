@@ -1,64 +1,76 @@
-exception Cycle
+module Make (Ord : Map.OrderedType) = struct
+  module Map = Map.Make (Ord)
+  module Set = Set.Make (Ord)
 
-type mark = NotVisited | InProgress | Visited
+  exception Cycle
 
-type 'a graph = {mutable g_nodes: 'a node list}
+  type mark = NotVisited | InProgress | Visited
 
-and 'a node =
-  { n_label: 'a
-  ; mutable n_mark: mark
-  ; mutable n_link_to: 'a node list
-  ; mutable n_linked_by: 'a node list }
+  type mut_node =
+    { mut_childrens: (Ord.t, unit) Hashtbl.t
+    ; mut_parents: (Ord.t, unit) Hashtbl.t }
 
-let mk_graph () = {g_nodes= []}
+  type mut = (Ord.t, mut_node) Hashtbl.t
 
-let add_node g x =
-  let n = {n_label= x; n_mark= NotVisited; n_link_to= []; n_linked_by= []} in
-  g.g_nodes <- n :: g.g_nodes
+  type node = {n_parents: Set.t; n_childrens: Set.t}
 
-let node_of_label g x = List.find (fun n -> n.n_label = x) g.g_nodes
+  type t = node Map.t
 
-let add_edge g id1 id2 =
-  try
-    let n1 = node_of_label g id1 in
-    let n2 = node_of_label g id2 in
-    n1.n_link_to <- n2 :: n1.n_link_to ;
-    n2.n_linked_by <- n1 :: n2.n_linked_by
-  with Not_found ->
-    Format.eprintf "Tried to add an edge between non-existing nodes" ;
-    raise Not_found
+  let empty () = Hashtbl.create 17
 
-let clear_marks g = List.iter (fun n -> n.n_mark <- NotVisited) g.g_nodes
-
-let find_roots g = List.filter (fun n -> n.n_linked_by = []) g.g_nodes
-
-let has_cycle g =
-  clear_marks g ;
-  let rec dfs node =
-    if node.n_mark = InProgress then true
-    else if node.n_mark = Visited then false
-    else (
-      node.n_mark <- InProgress ;
-      let result =
-        List.fold_left
-          (fun result neighbor -> result || dfs neighbor)
-          false node.n_link_to
+  let add_node g x =
+    if Hashtbl.mem g x then failwith "Multiple def of a node"
+    else
+      let n =
+        {mut_childrens= Hashtbl.create 7; mut_parents= Hashtbl.create 7}
       in
-      node.n_mark <- Visited ;
-      result )
-  in
-  List.fold_left (fun result node -> result || dfs node) false g.g_nodes
+      Hashtbl.add g x n
 
-let topological g =
-  clear_marks g ;
-  let topo = ref [] in
-  let rec dfs node =
-    if node.n_mark = InProgress then raise Cycle
-    else if node.n_mark = Visited then ()
-    else (
-      node.n_mark <- InProgress ;
-      List.iter (fun neighbor -> dfs neighbor) node.n_link_to ;
-      node.n_mark <- Visited ;
-      topo := node.n_label :: !topo )
-  in
-  List.iter dfs g.g_nodes ; !topo
+  let add_edge g id1 id2 =
+    let n1 = Hashtbl.find g id1 in
+    let n2 = Hashtbl.find g id2 in
+    Hashtbl.replace n1.mut_childrens id2 () ;
+    Hashtbl.replace n2.mut_parents id1 ()
+
+  let cpt = ref 0
+
+  let topological g =
+    let ordering = Hashtbl.create 17 in
+    let marks = Hashtbl.create 17 in
+    let rec dfs node =
+      match Hashtbl.find_opt marks node with
+      | Some InProgress ->
+          raise Cycle
+      | Some Visited ->
+          ()
+      | _ ->
+          Hashtbl.add marks node InProgress ;
+          let children = (Map.find node g).n_childrens in
+          Set.iter dfs children ;
+          Hashtbl.add marks node Visited ;
+          incr cpt ;
+          Hashtbl.add ordering node !cpt
+    in
+    cpt := 0 ;
+    Map.iter (fun n _ -> dfs n) g ;
+    ordering
+
+  let hasttbl_to_set h =
+    Hashtbl.fold (fun elm () set -> Set.add elm set) h Set.empty
+
+  let freeze mut_g =
+    Hashtbl.fold
+      (fun n mut_n map ->
+        let n_parents = hasttbl_to_set mut_n.mut_parents in
+        let n_childrens = hasttbl_to_set mut_n.mut_childrens in
+        Map.add n {n_parents; n_childrens} map )
+      mut_g Map.empty
+
+  let children g n =
+    match Map.find_opt n g with None -> Set.empty | Some n -> n.n_childrens
+
+  let parents g n =
+    match Map.find_opt n g with None -> Set.empty | Some n -> n.n_parents
+
+  let iter f = Map.iter (fun n ns -> f n ns.n_parents ns.n_childrens)
+end

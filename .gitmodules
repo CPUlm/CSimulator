@@ -1,3 +1,4 @@
-[submodule "SparseMemory"]
-	path = SparseMemory
+[submodule "lib/libc/sparse_memory"]
+	path = lib/libc/sparse_memory
 	url = https://github.com/CPUlm/SparseMemory
+	branch = main

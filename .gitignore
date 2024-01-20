@@ -204,3 +204,13 @@ tags
 **/*.net
 **/*.netlist
 !test/**/*.net
+
+csimulator
+dot.pdf
+netlist
+
+build/
+*.po
+*.do
+
+for_later

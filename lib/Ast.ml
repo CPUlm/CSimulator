@@ -1,59 +1,53 @@
-type ident = string
-
-(* Environment using ident as key *)
-module Env = struct
-  include Map.Make (struct
-    type t = ident
-
-    let compare = compare
-  end)
-
-  let of_list l = List.fold_left (fun env (x, ty) -> add x ty env) empty l
-end
-
-type ty = TBit | TBitArray of int
-
-type value = VBit of bool | VBitArray of bool array
-
 type binop = Or | Xor | And | Nand
 
 (* argument of operators (variable or constant) *)
-type arg =
-  | Avar of ident
-  (* x *)
-  | Aconst of value (* constant *)
+type arg = Variable of Variable.t | Constant of {value: int; size: int}
 
-(* Expressions (see MiniJazz documentation for more info on the operators) *)
+(* Expressions *)
 type exp =
-  | Earg of arg (* a: argument *)
-  | Ereg of ident (* REG x : register *)
-  | Enot of arg (* NOT a *)
-  | Ebinop of binop * arg * arg (* OP a1 a2 : boolean operator *)
-  | Emux of arg * arg * arg (* MUX a1 a2 : multiplexer *)
-  | Erom of int (*addr size*) * int (*word size*) * arg
-  (*read_addr*)
+  | Arg of arg (* a : argument *)
+  | Reg of Variable.t (* REG x : register *)
+  | Not of arg (* NOT a *)
+  | Binop of binop * arg * arg (* OP a1 a2 : boolean operator *)
+  | Mux of {cond: arg; true_b: arg; false_b: arg} (* MUX a1 a2 : multiplexer *)
+  | Rom of {addr_size: int; word_size: int; read_addr: arg}
   (* ROM addr_size word_size read_addr *)
-  | Eram of
-      int (*addr size*)
-      * int (*word size*)
-      * arg (*read_addr*)
-      * arg (*write_enable*)
-      * arg (*write_addr*)
-      * arg
-  (*data*)
+  | Ram of
+      { addr_size: int
+      ; word_size: int
+      ; read_addr: arg
+      ; write_enable: arg
+      ; write_addr: arg
+      ; write_data: arg }
   (* RAM addr_size word_size read_addr write_enable write_addr data *)
-  | Econcat of arg * arg (* CONCAT a1 a2 : concatenation of arrays *)
-  | Eslice of int * int * arg
+  | Concat of arg * arg (* CONCAT a1 a2 : concatenation of arrays *)
+  | Slice of {min: int; max: int; arg: arg}
     (* SLICE i1 i2 a : extract the slice of a between indices i1 and i2 *)
-  | Eselect of int * arg
+  | Select of int * arg
 (* SELECT i a : ith element of a *)
 
-(* equations: x = exp *)
-type equation = ident * exp
+type mut_program =
+  { p_eqs: (Variable.t, exp) Hashtbl.t
+  ; p_inputs: (Variable.t, unit) Hashtbl.t (* inputs *)
+  ; p_outputs: (Variable.t, unit) Hashtbl.t (* outputs *)
+  ; p_vars: (Variable.t, unit) Hashtbl.t (* all variables *) }
+
+module VarGraph = Graph.Make (Variable)
+
+type axiom =
+  { reg_vars: Variable.set
+  ; out_vars: Variable.set
+  ; w_enable: Variable.t option
+  ; w_addr: Variable.t option
+  ; w_data: Variable.t option }
 
 type program =
-  { p_eqs: equation list (* equations *)
-  ; p_inputs: ident list (* inputs *)
-  ; p_outputs: ident list (* outputs *)
-  ; p_vars: ty Env.t }
-(* maps variables to their types*)
+  { input_vars: Variable.set
+  ; output_vars: Variable.set
+  ; eqs: (Variable.t, exp) Hashtbl.t
+  ; vars: Variable.set
+  ; axioms: axiom
+  ; deps_graph: VarGraph.t
+  ; order: (Variable.t, int) Hashtbl.t
+  ; rom_var: Variable.t option
+  ; ram_var: Variable.t option }
