@@ -18,7 +18,7 @@ let find_rams_roms program =
 let vars_values, regs_values, vars_last_update, cycle_id, inputs_values =
   ("vars_values", "regs_values", "vars_last_update", "cycle_id", "inputs_values")
 
-type loc = Global | Local
+type loc = Global | Local | Input
 
 type global_env =
   { var_pos: (Variable.t, loc) Hashtbl.t
@@ -76,20 +76,21 @@ let rec process_arg (env, v_def) ppf arg =
   | Constant c ->
       (v_def, fun ppf () -> pp_print_int ppf c.value)
   | Variable var -> (
-      if Variable.Set.mem var v_def then
-        (v_def, fun ppf () -> Variable.pp ppf var)
-      else
-        match Variable.Map.find_opt var env.inputs with
-        | Some index ->
-            (v_def, fun ppf () -> fprintf ppf "%s[%i]" inputs_values index)
-        | None -> (
-          match Hashtbl.find env.var_pos var with
-          | Local ->
-              let eq = Hashtbl.find env.var_eq var in
-              let v_def = c_of_expr (env, v_def) ppf (var, eq) in
-              (v_def, fun ppf () -> Variable.pp ppf var)
-          | Global ->
-              (v_def, fun ppf () -> var_fun ppf var) ) )
+    match Hashtbl.find env.var_pos var with
+    | Local ->
+        if Variable.Set.mem var v_def then
+          (v_def, fun ppf () -> Variable.pp ppf var)
+        else
+          let eq = Hashtbl.find env.var_eq var in
+          let v_def = c_of_expr (env, v_def) ppf (var, eq) in
+          (v_def, fun ppf () -> Variable.pp ppf var)
+    | Global ->
+        (v_def, fun ppf () -> var_fun ppf var)
+    | Input ->
+        ( v_def
+        , fun ppf () ->
+            fprintf ppf "%s[%i]" inputs_values
+              (Variable.Map.find var env.inputs) ) )
 
 and c_of_expr (env, v_def) ppf (var, eq) =
   let () = assert (not (Variable.Set.mem var v_def)) in
@@ -222,6 +223,15 @@ let block_fun env ppf block =
 let block_def ppf block = fprintf ppf "value_t %a;" var_fun block.repr
 
 let do_cycle_fun ppf genv =
+  let get_var_value ppf v =
+    match Hashtbl.find genv.var_pos v with
+    | Local ->
+        failwith "Not possible !"
+    | Global ->
+        var_fun ppf v
+    | Input ->
+        fprintf ppf "%s[%i]" inputs_values (Variable.Map.find v genv.inputs)
+  in
   let longuest_var_name =
     Variable.Set.fold
       (fun v acc ->
@@ -238,6 +248,13 @@ let do_cycle_fun ppf genv =
        *cid = %s;@,\
        @,"
       cycle_id cycle_id
+  in
+  let () =
+    if
+      Variable.Map.is_empty genv.inputs
+      && Variable.Set.is_empty genv.axioms.out_vars
+    then ()
+    else fprintf ppf "@,fprintf(stdout, \"\\nStep: %%lu\\n\", %s);@,@," cycle_id
   in
   let () =
     if Variable.Map.is_empty genv.inputs then ()
@@ -263,17 +280,11 @@ let do_cycle_fun ppf genv =
     if Variable.Set.is_empty genv.axioms.out_vars then ()
     else
       let outvars = Variable.Set.elements genv.axioms.out_vars in
-      fprintf ppf
-        "/* Compute Outputs */@,\
-         %a@,\
-         @,\
-         fprintf(stdout, \"Step: %%lu\\n\", %s);@,\
-         @,\
-         %a@,\
-         @,"
+      fprintf ppf "/* Compute Outputs */@,%a@,@,%a@,@,"
         (pp_print_list (fun ppf v ->
-             fprintf ppf "@[<h>value_t %a = %a;@]" var_out v var_fun v ) )
-        outvars cycle_id
+             fprintf ppf "@[<h>value_t %a = %a;@]" var_out v get_var_value v )
+        )
+        outvars
         (pp_print_list
            ~pp_sep:(fun ppf () -> fprintf ppf "@,@,")
            (fun ppf v ->
@@ -293,7 +304,7 @@ let do_cycle_fun ppf genv =
   in
   let pp_arg ppf = function
     | Variable v ->
-        var_fun ppf v
+        get_var_value ppf v
     | Constant c ->
         pp_print_int ppf c.value
   in
@@ -456,7 +467,9 @@ let create_env (program : program) blocks =
   let () =
     Variable.Set.iter
       (fun v ->
-        if Variable.Map.mem v blocks then Hashtbl.add var_pos v Global
+        if Variable.Set.mem v program.input_vars then
+          Hashtbl.add var_pos v Input
+        else if Variable.Map.mem v blocks then Hashtbl.add var_pos v Global
         else Hashtbl.add var_pos v Local )
       program.vars
   in

@@ -36,9 +36,11 @@ let split program =
   (* [need_block] are variable that need to be in a block by themselves.*)
   let need_block =
     Variable.Set.(
-      Option.fold ~none:need_block
-        ~some:(fun v -> add v need_block)
-        program.axioms.w_data )
+      diff
+        (Option.fold ~none:need_block
+           ~some:(fun v -> add v need_block)
+           program.axioms.w_data )
+        program.input_vars )
   in
   let module VarHeap = Heap.Make (struct
     type t = Variable.t
