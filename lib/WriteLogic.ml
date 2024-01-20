@@ -237,7 +237,7 @@ let do_cycle_fun ppf genv =
       (fun v acc ->
         let name = asprintf "%a" Variable.pp v in
         max acc (String.length name) )
-      genv.vars 0
+      genv.axioms.out_vars 0
   in
   let () =
     fprintf ppf
