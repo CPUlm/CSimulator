@@ -13,16 +13,10 @@ ifeq ($(file),)
 	@echo "Missign file name. Please add 'file=(file name)'"
 else
 	@echo "Building netlist '$(file)'..."
-	@mkdir -p build
-	@cp clib/main.c build/
-	@cp clib/commons.h build/
-	@cp clib/sparse_memory/memory.h build/
-	@cp clib/sparse_memory/memory.c build/
-	@cp clib/sparse_memory/screen.h build/
-	@cp clib/sparse_memory/screen.c build/
-	./csimulator $(file) > build/logic.c
+	./csimulator $(file) build
 	cd build/ && clang -g *.c
 endif
+
 dev:
 	dune build -w
 

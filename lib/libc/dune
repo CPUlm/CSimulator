@@ -1,0 +1,40 @@
+(library
+ (name LibC))
+
+(rule
+ (with-stdout-to
+  main.ml
+  (progn
+   (echo "let content = {|")
+   (cat main.c)
+   (echo "|}"))))
+
+(rule
+ (with-stdout-to
+  commons.ml
+  (progn
+   (echo "let header = {|")
+   (cat commons.h)
+   (echo "|}"))))
+
+(rule
+ (with-stdout-to
+  memory.ml
+  (progn
+   (echo "let header = {|")
+   (cat sparse_memory/memory.h)
+   (echo "|}")
+   (echo "let content = {|")
+   (cat sparse_memory/memory.c)
+   (echo "|}"))))
+
+(rule
+ (with-stdout-to
+  screen.ml
+  (progn
+   (echo "let header = {|")
+   (cat sparse_memory/screen.h)
+   (echo "|}")
+   (echo "let content = {|")
+   (cat sparse_memory/screen.c)
+   (echo "|}"))))

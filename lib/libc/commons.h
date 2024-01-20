@@ -12,6 +12,7 @@ typedef uint_fast32_t cycle_t;
 typedef unsigned char bus_size_t;
 
 void print_value(FILE *stream, value_t v, bus_size_t size);
+value_t get_input(const char *var_name, bus_size_t bus_size);
 
 bool do_cycle(cycle_t *cycle_id);
 

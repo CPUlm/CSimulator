@@ -1,5 +1,5 @@
 (lang dune 3.10)
 
-(name CNetlistSimulator)
+(name CSimulator)
 
 (using menhir 2.1)

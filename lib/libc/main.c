@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
 #include <string.h>
 
 static char *char_repr[256] = {
@@ -71,7 +72,7 @@ const char *to_binary_str(value_t v, bus_size_t size)
 void print_value(FILE *stream, value_t v, bus_size_t size)
 {
     uint64_t un_sigval = v;
-    int64_t sigval = v;
+    int64_t sigval = (int64_t)v;
 
     if (v >> (size - 1))
     {
@@ -86,6 +87,83 @@ void print_value(FILE *stream, value_t v, bus_size_t size)
 #endif
 }
 
+value_t get_input(const char *var_name, bus_size_t bus_size)
+{
+    char buffer[256] = {0};
+    for (;;)
+    {
+        printf("Value of '%s' (bus size: %d): ", var_name, bus_size);
+        char *read = fgets(buffer, sizeof(buffer), stdin);
+
+        if (read == NULL)
+        {
+            printf("\n");
+            exit(0);
+        }
+
+        size_t char_read = strcspn(buffer, "\r\n");
+        buffer[char_read] = 0;
+
+        bool is_neg = false;
+
+        if (char_read > 0 && buffer[0] == '-')
+        {
+            is_neg = true;
+        }
+
+        bool is_ok = false;
+        value_t v;
+
+        if (char_read > 1 + is_neg && buffer[is_neg] == '0' && buffer[1 + is_neg] == 'b')
+        {
+            // Binary Constant
+            char *rest = NULL;
+            v = strtoull(buffer + 2 + is_neg, &rest, 2);
+            is_ok = errno != ERANGE && rest == buffer + char_read;
+        }
+        else if (char_read > 1 + is_neg && buffer[is_neg] == '0' && buffer[1 + is_neg] == 'd')
+        {
+            // Decimal Constant
+            char *rest = NULL;
+            v = strtoull(buffer + 2 + is_neg, &rest, 10);
+            is_ok = errno != ERANGE && rest == buffer + char_read;
+        }
+        else if (char_read > 1 + is_neg && buffer[is_neg] == '0' && buffer[1 + is_neg] == 'x')
+        {
+            // Hexadecimal Constant
+            char *rest = NULL;
+            v = strtoull(buffer + 2 + is_neg, &rest, 16);
+            is_ok = errno != ERANGE && rest == buffer + char_read;
+        }
+        else
+        {
+            // Binary Digits
+            char *rest = NULL;
+            v = strtoull(buffer + is_neg, &rest, 2);
+            is_ok = errno != ERANGE && rest == buffer + char_read;
+        }
+
+        if (!is_ok)
+        {
+            fprintf(stdout, "Cannot interpret this constant : '%s'\n", buffer);
+            errno = 0;
+        }
+        else if (is_neg && v <= (1 << (bus_size - 1)))
+        {
+            return (-v) & ((1 << bus_size) - 1);
+        }
+        else if (!is_neg && v < (1 << bus_size))
+        {
+            return v;
+        }
+        else
+        {
+            fprintf(stdout, "The constant '%s' does not fit in %i bits.\n", buffer, bus_size);
+            errno = 0;
+        }
+    }
+}
+
 /** Returns true if @a s ends with @a t (equivalently if @a t is a suffix of @a s). */
 static int strendswith(const char *s, const char *t)
 {
@@ -98,7 +176,7 @@ static int strendswith(const char *s, const char *t)
 
 int main(int argc, char **argv)
 {
-    cycle_t nb_cycle = -1L;
+    cycle_t nb_cycle = (cycle_t)(-1L);
 
     const char *ram_file = NULL;
     const char *rom_file = NULL;
@@ -181,7 +259,6 @@ int main(int argc, char **argv)
     cycle_t curr_cycle = 0;
     do
     {
-        printf("Cycle: %lu\n", curr_cycle);
     } while (!do_cycle(&curr_cycle) && curr_cycle < nb_cycle);
 
     end_simulation();

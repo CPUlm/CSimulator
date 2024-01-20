@@ -8,9 +8,10 @@ let quiet = ref false
 
 let cleanup = ref true
 
-let number_steps = ref None
-
-let usage = "usage: csimulator [options] file.net"
+let usage =
+  "usage: csimulator [options] file.net [out_dir]\n\n\
+   This program compiles a NetList to a C program.\n\n\
+   Options:"
 
 let spec =
   Arg.align
@@ -34,21 +35,38 @@ let spec =
     ; ( "--useless-stats"
       , Arg.Unit (fun () -> action := PrintUseless)
       , " Output the number of useless variables." )
-    ; ("--quiet", Arg.Set quiet, " Produce a quiet program.")
-    ; ( "--steps"
-      , Arg.Int (fun i -> number_steps := Some i)
-      , " Number of steps to simulate." ) ]
+    ; ("--quiet", Arg.Set quiet, " Produce a quiet program.") ]
 
-let filename =
+let filename, out_dir =
   let file = ref None in
-  let set_file s =
-    if not (Filename.check_suffix s ".net") then
-      raise (Arg.Bad "no .net extension")
-    else if Option.is_some !file then raise (Arg.Bad "multiple input files.")
-    else file := Some s
+  let out_dir = ref None in
+  let set_files s =
+    if Filename.check_suffix s ".net" then
+      if Option.is_some !file then raise (Arg.Bad "multiple input files.")
+      else file := Some s
+    else
+      match !action with
+      | Compile ->
+          if Option.is_some !out_dir then
+            raise (Arg.Bad "multiple output directories.")
+          else out_dir := Some s
+      | _ ->
+          raise (Arg.Bad "no .net extension")
   in
-  Arg.parse spec set_file usage ;
-  match !file with Some f -> f | None -> Arg.usage spec usage ; exit 1
+  Arg.parse spec set_files usage ;
+  match (!file, !action, !out_dir) with
+  | None, _, _ ->
+      Format.eprintf "Missing input file.@." ;
+      Arg.usage spec usage ;
+      exit 1
+  | Some _, Compile, None ->
+      Format.eprintf "Missing output directory.@." ;
+      Arg.usage spec usage ;
+      exit 1
+  | Some f, Compile, Some out_dir ->
+      (f, Some out_dir)
+  | Some f, _, _ ->
+      (f, None)
 
 let program, nb_useless =
   try
@@ -99,7 +117,11 @@ let () =
       Format.printf "Number of:@. - Variables: %i@. - Useless variables: %i@."
         (Variable.Set.cardinal program.vars + nb_useless)
         nb_useless
-  | Compile ->
-      let _, blocks = BlockSplitter.split program in
-      let genv = ToC.create_env program blocks in
-      ToC.pp_prog Format.std_formatter genv
+  | Compile -> (
+    match out_dir with
+    | None ->
+        assert false
+    | Some out_dir ->
+        let _, blocks = BlockSplitter.split program in
+        let genv = WriteLogic.create_env program blocks in
+        ToC.export_into out_dir genv )
