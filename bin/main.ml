@@ -6,6 +6,8 @@ let action = ref Compile
 
 let quiet = ref false
 
+let screen = ref true
+
 let cleanup = ref true
 
 let usage =
@@ -32,6 +34,9 @@ let spec =
     ; ( "--color-table"
       , Arg.Unit (fun () -> action := PrintColorTable)
       , " Output a table with the block of each node." )
+    ; ( "--disable-screen"
+      , Arg.Unit (fun () -> screen := false)
+      , " Disable the screen in the output." )
     ; ( "--useless-stats"
       , Arg.Unit (fun () -> action := PrintUseless)
       , " Output the number of useless variables." )
@@ -123,5 +128,5 @@ let () =
         assert false
     | Some out_dir ->
         let _, blocks = BlockSplitter.split program in
-        let genv = WriteLogic.create_env program blocks in
+        let genv = WriteLogic.create_env program blocks !screen in
         ToC.export_into out_dir genv )

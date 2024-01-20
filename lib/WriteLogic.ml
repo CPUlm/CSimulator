@@ -30,7 +30,8 @@ type global_env =
   ; axioms: axiom
   ; vars: Variable.set
   ; inputs: int Variable.map
-  ; blocks: block list }
+  ; blocks: block list
+  ; with_screen: bool }
 
 let arg_size = function Variable v -> Variable.size v | Constant c -> c.size
 
@@ -350,15 +351,21 @@ let init_ram_fun ppf genv =
     | None ->
         ()
     | Some ram_var ->
-        fprintf ppf
-          "if (ram_file == NULL) {@;\
-           <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
-           exit(1);@]@,\
-           } else {@;\
-           <0 4>@[<v>%a = ram_from_file(ram_file);@,\
-           // screen_init_with_ram_mapping(%a);@]@,\
-           }@]"
-          var_ram ram_var var_ram ram_var
+        let () =
+          fprintf ppf
+            "if (ram_file == NULL) {@;\
+             <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
+             exit(1);@]@,\
+             } else {@;\
+             <0 4>@[<v>%a = ram_from_file(ram_file);@,"
+            var_ram ram_var
+        in
+        let () =
+          if genv.with_screen then
+            fprintf ppf "screen_init_with_ram_mapping(%a);@," var_ram ram_var
+        in
+        let () = fprintf ppf "@]@,}@]" in
+        ()
   in
   let () = fprintf ppf "@]@,}@,@," in
   ()
@@ -445,7 +452,7 @@ let pp_prog ppf genv =
   let () = end_simul_fun ppf genv in
   fprintf ppf "@]@."
 
-let create_env (program : program) blocks =
+let create_env (program : program) blocks with_screen =
   let var_pos = Hashtbl.create 17 in
   let () =
     Variable.Set.iter
@@ -487,4 +494,5 @@ let create_env (program : program) blocks =
   ; axioms= program.axioms
   ; vars= program.vars
   ; blocks
-  ; inputs }
+  ; inputs
+  ; with_screen }
