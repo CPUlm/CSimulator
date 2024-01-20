@@ -148,11 +148,11 @@ value_t get_input(const char *var_name, bus_size_t bus_size)
             fprintf(stdout, "Cannot interpret this constant : '%s'\n", buffer);
             errno = 0;
         }
-        else if (is_neg && v <= (1 << (bus_size - 1)))
+        else if (is_neg && v <= (1LL << (bus_size - 1)))
         {
             return (-v) & ((1 << bus_size) - 1);
         }
-        else if (!is_neg && v < (1 << bus_size))
+        else if (!is_neg && v < (1LL << bus_size))
         {
             return v;
         }

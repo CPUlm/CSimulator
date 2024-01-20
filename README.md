@@ -5,6 +5,7 @@ CSimulator is a Netlist to C compiler. It accepts NetList files as described in 
 - It only supports a single ROM and/or RAM block.
 - Words are represented and interpreted with the most significant bit first.
 
+
 In addition, since this simulator is intended to simulate the CPUlm, it is capable of handling screen outputs within the terminal. In addition, as requested by the CPUlm Clock program, a word in memory is modified when the system clock advances by one second.
 
 ## Usage
