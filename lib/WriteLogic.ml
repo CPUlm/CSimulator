@@ -15,8 +15,18 @@ let find_rams_roms program =
     program.eqs
     Variable.Set.(empty, empty)
 
-let vars_values, regs_values, vars_last_update, cycle_id, inputs_values =
-  ("vars_values", "regs_values", "vars_last_update", "cycle_id", "inputs_values")
+let ( vars_values
+    , regs_values
+    , vars_last_update
+    , cycle_id
+    , inputs_values
+    , need_stop ) =
+  ( "vars_values"
+  , "regs_values"
+  , "vars_last_update"
+  , "cycle_id"
+  , "inputs_values"
+  , "need_stop" )
 
 type loc = Global | Local | Input
 
@@ -157,11 +167,20 @@ and c_of_expr (env, v_def) ppf (var, eq) =
         v_def
     | Rom romd -> (
       match env.rom_var with
-      | Some rom_var ->
-          assert (var = rom_var) ;
+      | Some rom_addr ->
+          let max_addr = Int64.(sub (shift_left one romd.addr_size) one) in
+          assert (var = rom_addr) ;
           let v_def, pp_arg = process_arg (env, v_def) ppf romd.read_addr in
-          fprintf ppf "@[<h>value_t %a = rom_get(%a, %a);@]@," Variable.pp var
-            var_rom rom_var pp_arg () ;
+          fprintf ppf
+            "@[<v>value_t %a = 0;@,\
+             value_t read_addr = %a;@,\
+             if (read_addr == %#Lx) {@;\
+             <0 4>@[<h>%s = true;@]@,\
+             } else {@;\
+             <0 4>@[<h>%a = rom_get(%a, read_addr);@]@,\
+             }@]@,"
+            Variable.pp var pp_arg () max_addr need_stop Variable.pp var var_rom
+            rom_addr ;
           v_def
       | None ->
           (* We can only have one ROM Block in this simulator *)
@@ -309,7 +328,7 @@ let do_cycle_fun ppf genv =
           ram_var
   in
   let () = if genv.with_pause then fprintf ppf "getchar();@," in
-  let () = fprintf ppf "return false;@]@,}@]@,@," in
+  let () = fprintf ppf "return %s;@]@,}@]@,@," need_stop in
   ()
 
 let init_rom_fun ppf genv =
@@ -380,6 +399,13 @@ let end_simul_fun ppf env =
     | Some ram_var ->
         fprintf ppf "@[<v>/* Free Ram */@,ram_destroy(%a);@]@," var_ram ram_var
   in
+  let () =
+    if env.with_screen then
+      fprintf ppf
+        "@[<v>/* Restore Screen */@,\
+         screen_terminate();@,\
+         fprintf(stdout,\"\\n\");@]@,"
+  in
   let () = fprintf ppf "@]@,}@]@," in
   ()
 
@@ -395,7 +421,10 @@ let pp_prog ppf genv =
        #include \"screen.h\"@,\
        @,"
   in
-  let () = fprintf ppf "/* Globals Vars */@,cycle_t %s = 0;@," cycle_id in
+  let () =
+    fprintf ppf "/* Globals Vars */@,cycle_t %s = 0;@,bool %s = false;@,"
+      cycle_id need_stop
+  in
   let () =
     if array_size <> 0 then
       fprintf ppf "value_t %s[%i] = {0};@,cycle_t %s[%i] = {0};@," vars_values

@@ -13,7 +13,7 @@ ifeq ($(file),)
 	@echo "Missign file name. Please add 'file=(file name)'"
 else
 	@echo "Building netlist '$(file)'..."
-	./csimulator --disable-screen --pause $(file) build
+	./csimulator $(file) build
 	cd build/ && clang -g *.c
 endif
 
