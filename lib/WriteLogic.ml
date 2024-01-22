@@ -427,7 +427,7 @@ let do_cycle_fun ppf (genv : global_env) =
   in
   let () =
     if genv.with_pause then
-      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 18 0
+      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 19 0
   in
   let () = fprintf ppf "return %s;@]@,}@]@,@," need_stop in
   ()
@@ -512,7 +512,7 @@ let end_simul_fun ppf (genv : global_env) =
          printf(\"\\x1b[%d;%dH\\n\");@,\
          fflush(stdout);@,\
          @]@,"
-        10 0
+        19 0
   in
   let () =
     if genv.with_debug then
