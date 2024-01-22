@@ -77,10 +77,12 @@ let pp_eq ppf = function
   | Mux md ->
       fprintf ppf "MUX %a %a %a" pp_arg md.cond pp_arg md.true_b pp_arg
         md.false_b
-  | Rom _ ->
-      assert false
-  | Ram _ ->
-      assert false
+  | Rom rd ->
+      fprintf ppf "ROM %a %i %i" pp_arg rd.read_addr rd.addr_size rd.word_size
+  | Ram rd ->
+      fprintf ppf "RAM %a %i %i %a %a %a" pp_arg rd.read_addr rd.addr_size
+        rd.word_size pp_arg rd.write_enable pp_arg rd.write_addr pp_arg
+        rd.write_data
   | Concat (lhs, rhs) ->
       fprintf ppf "CONCAT %a %a" pp_arg lhs pp_arg rhs
   | Slice s ->
