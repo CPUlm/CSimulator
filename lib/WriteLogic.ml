@@ -516,7 +516,7 @@ let end_simul_fun ppf (genv : global_env) =
   in
   let () =
     if genv.with_debug then
-      fprintf ppf "@[<v>fprintf(stdout,\"Number of cycle: %%i\\n\", %s);@]@,"
+      fprintf ppf "@[<v>fprintf(stdout,\"Number of cycle: %%lu\\n\", %s);@]@,"
         cycle_id
   in
   let () = fprintf ppf "@]@,}@]@," in
