@@ -2,19 +2,6 @@ open Ast
 open BlockSplitter
 open Format
 
-let find_rams_roms program =
-  Hashtbl.fold
-    (fun v eq (roms, rams) ->
-      match eq with
-      | Ram _ ->
-          (roms, Variable.Set.add v rams)
-      | Rom _ ->
-          (Variable.Set.add v roms, rams)
-      | _ ->
-          (roms, rams) )
-    program.eqs
-    Variable.Set.(empty, empty)
-
 let ( vars_values
     , regs_values
     , vars_last_update
@@ -28,45 +15,49 @@ let ( vars_values
   , "inputs_values"
   , "need_stop" )
 
-type loc = Global | Local | Input
+type loc =
+  | Global of (formatter -> unit -> unit)
+  | Local
+  | Input of (formatter -> unit -> unit)
 
 type global_env =
-  { var_pos: (Variable.t, loc) Hashtbl.t
-  ; reg_index: (Variable.t, int) Hashtbl.t
+  { var_compare: Variable.t -> Variable.t -> int
+  ; var_pos: (Variable.t, loc) Hashtbl.t
   ; var_table_index: (Variable.t, int) Hashtbl.t
   ; var_eq: (Variable.t, exp) Hashtbl.t
-  ; rom_var: Variable.t option
-  ; ram_var: Variable.t option
-  ; axioms: axiom
-  ; vars: Variable.set
-  ; inputs: int Variable.map
-  ; blocks: block list
+  ; rom_var: (Variable.t * (formatter -> unit -> unit)) option
+  ; ram_var: (Variable.t * (formatter -> unit -> unit)) option
+  ; reg_vars:
+      ( Variable.t
+      , (formatter -> unit -> unit) * (formatter -> unit -> unit) )
+      Hashtbl.t
+  ; inputs: Variable.set
+  ; outputs: Variable.set
+  ; with_pause: bool
   ; with_screen: bool
-  ; with_pause: bool }
+  ; with_debug: bool
+  ; with_tick: bool
+  ; blocks: block list }
+
+type local_env =
+  { var_pos: (Variable.t, loc) Hashtbl.t
+  ; rom_var: (Variable.t * (formatter -> unit -> unit)) option
+  ; ram_var: (Variable.t * (formatter -> unit -> unit)) option
+  ; reg_vars:
+      ( Variable.t
+      , (formatter -> unit -> unit) * (formatter -> unit -> unit) )
+      Hashtbl.t
+  ; var_compare: Variable.t -> Variable.t -> int
+  ; defined_vars: (formatter -> unit -> unit) Variable.map
+  ; block_vars: exp Variable.map }
 
 let arg_size = function Variable v -> Variable.size v | Constant c -> c.size
-
-let var_fun ppf = fprintf ppf "fun_%a()" Variable.pp
-
-let var_out ppf = fprintf ppf "out_%a" Variable.pp
-
-let var_rom ppf = fprintf ppf "rom_%a" Variable.pp
-
-let var_ram ppf = fprintf ppf "ram_%a" Variable.pp
 
 let var_mask ppf var =
   let size = Variable.size var in
   let () = assert (size < Sys.int_size) in
   let mask = Int.shift_left 1 size in
   fprintf ppf "%#x" (mask - 1)
-
-let reg_last_value reg_map ppf reg =
-  let reg_index = Hashtbl.find reg_map reg in
-  fprintf ppf "%s[2*%i + ((%s+1)%%2)]" regs_values reg_index cycle_id
-
-let reg_current_value reg_map ppf reg =
-  let reg_index = Hashtbl.find reg_map reg in
-  fprintf ppf "%s[2*%i + ((%s)%%2)]" regs_values reg_index cycle_id
 
 let mk_tmp_ppf () =
   let buf = Buffer.create 17 in
@@ -83,76 +74,145 @@ let mk_tmp_ppf () =
   in
   (fmt, pp_buf)
 
-let rec process_arg (env, v_def) ppf arg =
+let needed_vars lenv arg =
+  let visited = Hashtbl.create 17 in
+  let rec loop acc = function
+    | Constant _ ->
+        acc
+    | Variable v -> (
+        if Hashtbl.mem visited v then acc
+        else
+          let () = Hashtbl.add visited v () in
+          match Hashtbl.find lenv.var_pos v with
+          | Local -> (
+            match Variable.Map.find_opt v lenv.defined_vars with
+            | Some _ ->
+                acc
+            | None -> (
+              match Variable.Map.find v lenv.block_vars with
+              | Arg arg | Not arg | Select (_, arg) ->
+                  let loc = loop acc arg in
+                  Variable.Set.(add v loc)
+              | Reg _ ->
+                  Variable.Set.empty
+              | Binop (_, lhs, rhs) | Concat (lhs, rhs) ->
+                  let lhs_loc = loop acc lhs in
+                  let rhs_loc = loop acc rhs in
+                  let loc = Variable.Set.(union lhs_loc rhs_loc) in
+                  Variable.Set.add v loc
+              | Rom rd ->
+                  let loc = loop acc rd.read_addr in
+                  Variable.Set.add v loc
+              | Ram rd ->
+                  let loc = loop acc rd.read_addr in
+                  Variable.Set.add v loc
+              | Slice sd ->
+                  let loc = loop acc sd.arg in
+                  Variable.Set.add v loc
+              | Mux md ->
+                  let cond_loc = loop acc md.cond in
+                  let true_loc = loop acc md.true_b in
+                  let false_loc = loop acc md.false_b in
+                  let loc =
+                    Variable.Set.(union cond_loc (inter true_loc false_loc))
+                  in
+                  Variable.Set.add v loc ) )
+          | Global _ ->
+              acc
+          | Input _ ->
+              acc )
+  in
+  loop Variable.Set.empty arg
+
+let var_pp_of_var v ppf () = fprintf ppf "var_%a" Variable.pp v
+
+let nop ppf () = ignore ppf
+
+let rec process_arg lenv arg =
   match arg with
   | Constant c ->
-      (v_def, fun ppf () -> pp_print_int ppf c.value)
+      (lenv, nop, fun ppf () -> pp_print_int ppf c.value)
   | Variable var -> (
-    match Hashtbl.find env.var_pos var with
-    | Local ->
-        if Variable.Set.mem var v_def then
-          (v_def, fun ppf () -> Variable.pp ppf var)
-        else
-          let eq = Hashtbl.find env.var_eq var in
-          let v_def = c_of_expr (env, v_def) ppf (var, eq) in
-          (v_def, fun ppf () -> Variable.pp ppf var)
-    | Global ->
-        (v_def, fun ppf () -> var_fun ppf var)
-    | Input ->
-        ( v_def
-        , fun ppf () ->
-            fprintf ppf "%s[%i]" inputs_values
-              (Variable.Map.find var env.inputs) ) )
+    match Hashtbl.find lenv.var_pos var with
+    | Local -> (
+      match Variable.Map.find_opt var lenv.defined_vars with
+      | Some name ->
+          (lenv, nop, name)
+      | None ->
+          let tmp_ppf, pp_tmp_ppf = mk_tmp_ppf () in
+          let lenv = c_of_expr lenv tmp_ppf var in
+          let pp_var = Variable.Map.find var lenv.defined_vars in
+          (lenv, pp_tmp_ppf, pp_var) )
+    | Global fun_name ->
+        (lenv, nop, fun_name)
+    | Input index_pos ->
+        (lenv, nop, index_pos) )
 
-and c_of_expr (env, v_def) ppf (var, eq) =
-  let () = assert (not (Variable.Set.mem var v_def)) in
-  let v_def =
+and c_of_expr lenv ppf var =
+  let () = assert (Variable.Map.mem var lenv.block_vars) in
+  let () = assert (not (Variable.Map.mem var lenv.defined_vars)) in
+  let eq = Variable.Map.find var lenv.block_vars in
+  let var_pp = var_pp_of_var var in
+  let lenv =
     match eq with
     | Arg arg ->
-        let v_def, pp_arg = process_arg (env, v_def) ppf arg in
-        let () =
-          fprintf ppf "@[<h>value_t %a = %a;@]@," Variable.pp var pp_arg ()
-        in
-        v_def
+        let lenv, pp_before, pp_arg = process_arg lenv arg in
+        let () = pp_before ppf () in
+        let () = fprintf ppf "@[<h>value_t %a = %a;@]@," var_pp () pp_arg () in
+        lenv
     | Reg reg ->
-        let () =
-          fprintf ppf "@[<h>value_t %a = %a;@]@," Variable.pp var
-            (reg_last_value env.reg_index)
-            reg
-        in
-        v_def
+        let last, _ = Hashtbl.find lenv.reg_vars reg in
+        let () = fprintf ppf "@[<h>value_t %a = %a;@]@," var_pp () last () in
+        lenv
     | Not arg ->
-        let v_def, pp_arg = process_arg (env, v_def) ppf arg in
+        let lenv, pp_before, pp_arg = process_arg lenv arg in
+        let () = pp_before ppf () in
         let () =
-          fprintf ppf "@[<h>value_t %a = (~(%a)) & (%a);@]@," Variable.pp var
-            pp_arg () var_mask var
+          fprintf ppf "@[<h>value_t %a = (~(%a)) & (%a);@]@," var_pp () pp_arg
+            () var_mask var
         in
-        v_def
+        lenv
     | Binop (binop, arg1, arg2) ->
-        let v_def, pp_arg1 = process_arg (env, v_def) ppf arg1 in
-        let v_def, pp_arg2 = process_arg (env, v_def) ppf arg2 in
+        let lenv, pp_before1, pp_arg1 = process_arg lenv arg1 in
+        let lenv, pp_before2, pp_arg2 = process_arg lenv arg2 in
+        let () = pp_before1 ppf () in
+        let () = pp_before2 ppf () in
         let () =
           match binop with
           | And ->
-              fprintf ppf "@[<h>value_t %a = (%a) & (%a);@]@," Variable.pp var
-                pp_arg1 () pp_arg2 ()
+              fprintf ppf "@[<h>value_t %a = (%a) & (%a);@]@," var_pp () pp_arg1
+                () pp_arg2 ()
           | Or ->
-              fprintf ppf "@[<h>value_t %a = (%a) | (%a);@]@," Variable.pp var
-                pp_arg1 () pp_arg2 ()
+              fprintf ppf "@[<h>value_t %a = (%a) | (%a);@]@," var_pp () pp_arg1
+                () pp_arg2 ()
           | Xor ->
-              fprintf ppf "@[<h>value_t %a = (%a) ^ (%a);@]@," Variable.pp var
-                pp_arg1 () pp_arg2 ()
+              fprintf ppf "@[<h>value_t %a = (%a) ^ (%a);@]@," var_pp () pp_arg1
+                () pp_arg2 ()
           | Nand ->
-              fprintf ppf "@[<h>value_t %a = (~(%a) & (%a)) & (%a);@]@,"
-                Variable.pp var pp_arg1 () pp_arg2 () var_mask var
+              fprintf ppf "@[<h>value_t %a = (~(%a) & (%a)) & (%a);@]@," var_pp
+                () pp_arg1 () pp_arg2 () var_mask var
         in
-        v_def
+        lenv
     | Mux md ->
-        let v_def, pp_cond = process_arg (env, v_def) ppf md.cond in
-        let true_fmt, pp_true_fmt = mk_tmp_ppf () in
-        let _, pp_true_arg = process_arg (env, v_def) true_fmt md.true_b in
-        let false_fmt, pp_false_fmt = mk_tmp_ppf () in
-        let _, pp_false_arg = process_arg (env, v_def) false_fmt md.false_b in
+        let lenv, pp_before_cond, pp_cond = process_arg lenv md.cond in
+        let () = pp_before_cond ppf () in
+        let true_loc_needed = needed_vars lenv md.true_b in
+        let false_loc_needed = needed_vars lenv md.false_b in
+        let local_vars_needed =
+          Variable.Set.(inter true_loc_needed false_loc_needed |> elements)
+          |> List.sort lenv.var_compare
+        in
+        let lenv =
+          List.fold_left
+            (fun lenv v ->
+              if Variable.Map.mem v lenv.defined_vars then lenv
+              else
+                let lenv = c_of_expr lenv ppf v in
+                lenv )
+            lenv local_vars_needed
+        in
+        let _, pp_bef_true, pp_true = process_arg lenv md.true_b in
+        let _, pp_bef_false, pp_false = process_arg lenv md.false_b in
         let () =
           fprintf ppf
             "@[<v>value_t %a;@,\
@@ -161,16 +221,22 @@ and c_of_expr (env, v_def) ppf (var, eq) =
              } else {@;\
              <0 4>@[<v>%a%a = %a;@]@,\
              }@]@,"
-            Variable.pp var pp_cond () pp_true_fmt () Variable.pp var
-            pp_true_arg () pp_false_fmt () Variable.pp var pp_false_arg ()
+            var_pp () pp_cond () pp_bef_true () var_pp () pp_true ()
+            pp_bef_false () var_pp () pp_false ()
         in
-        v_def
-    | Rom romd -> (
-      match env.rom_var with
-      | Some rom_addr ->
-          let max_addr = Int64.(sub (shift_left one romd.addr_size) one) in
-          assert (var = rom_addr) ;
-          let v_def, pp_arg = process_arg (env, v_def) ppf romd.read_addr in
+        lenv
+    | Rom romd ->
+        let rom_var =
+          match lenv.rom_var with
+          | Some (_, rom_pp) ->
+              rom_pp
+          | None ->
+              assert false
+        in
+        let max_addr = Int64.(sub (shift_left one romd.addr_size) one) in
+        let lenv, pp_before, pp_arg = process_arg lenv romd.read_addr in
+        let () = pp_before ppf () in
+        let () =
           fprintf ppf
             "@[<v>value_t %a = 0;@,\
              value_t read_addr = %a;@,\
@@ -179,79 +245,103 @@ and c_of_expr (env, v_def) ppf (var, eq) =
              } else {@;\
              <0 4>@[<h>%a = rom_get(%a, read_addr);@]@,\
              }@]@,"
-            Variable.pp var pp_arg () max_addr need_stop Variable.pp var var_rom
-            rom_addr ;
-          v_def
-      | None ->
-          (* We can only have one ROM Block in this simulator *)
-          assert false )
-    | Ram ramd -> (
-      match env.ram_var with
-      | Some ram_var ->
-          assert (var = ram_var) ;
-          let v_def, pp_arg = process_arg (env, v_def) ppf ramd.read_addr in
-          fprintf ppf "@[<h>value_t %a = ram_get(%a, %a);@]@," Variable.pp var
-            var_ram ram_var pp_arg () ;
-          v_def
-      | None ->
-          (* We can only have one RAM Block in this simulator *)
-          assert false )
+            var_pp () pp_arg () max_addr need_stop var_pp () rom_var ()
+        in
+        lenv
+    | Ram ramd ->
+        let ram_var =
+          match lenv.ram_var with
+          | Some (_, ram_pp) ->
+              ram_pp
+          | None ->
+              assert false
+        in
+        let lenv, pp_before, pp_arg = process_arg lenv ramd.read_addr in
+        let () = pp_before ppf () in
+        let () =
+          fprintf ppf "@[<h>value_t %a = ram_get(%a, %a);@]@," var_pp () ram_var
+            () pp_arg ()
+        in
+        lenv
     | Concat (arg1, arg2) ->
-        let v_def, pp_arg1 = process_arg (env, v_def) ppf arg1 in
-        let v_def, pp_arg2 = process_arg (env, v_def) ppf arg2 in
+        let lenv, pp_before1, pp_arg1 = process_arg lenv arg1 in
+        let lenv, pp_before2, pp_arg2 = process_arg lenv arg2 in
+        let () = pp_before1 ppf () in
+        let () = pp_before2 ppf () in
         let () =
-          fprintf ppf "@[<h>value_t %a = ((%a) << (%i) | (%a));@]@," Variable.pp
-            var pp_arg2 () (arg_size arg1) pp_arg1 ()
+          fprintf ppf "@[<h>value_t %a = ((%a) << (%i) | (%a));@]@," var_pp ()
+            pp_arg2 () (arg_size arg1) pp_arg1 ()
         in
-        v_def
+        lenv
     | Slice sd ->
-        let v_def, pp_arg = process_arg (env, v_def) ppf sd.arg in
+        let lenv, pp_before, pp_arg = process_arg lenv sd.arg in
+        let () = pp_before ppf () in
         let () =
-          fprintf ppf "@[<h>value_t %a = ((%a) >> (%i)) & (%a);@]@," Variable.pp
-            var pp_arg () sd.min var_mask var
+          fprintf ppf "@[<h>value_t %a = ((%a) >> (%i)) & (%a);@]@," var_pp ()
+            pp_arg () sd.min var_mask var
         in
-        v_def
+        lenv
     | Select (index, arg) ->
-        let v_def, pp_arg = process_arg (env, v_def) ppf arg in
+        let lenv, pp_before, pp_arg = process_arg lenv arg in
+        let () = pp_before ppf () in
         let () =
-          fprintf ppf "@[<h>value_t %a = ((%a) >> (%i)) & (%a);@]@," Variable.pp
-            var pp_arg () index var_mask var
+          fprintf ppf "@[<h>value_t %a = ((%a) >> (%i)) & (%a);@]@," var_pp ()
+            pp_arg () index var_mask var
         in
-        v_def
+        lenv
   in
-  Variable.Set.add var v_def
+  {lenv with defined_vars= Variable.Map.add var var_pp lenv.defined_vars}
 
-let block_fun env ppf block =
-  let block_id = Hashtbl.find env.var_table_index block.repr in
-  let repr_eq = Hashtbl.find env.var_eq block.repr in
+let block_fun genv ppf block =
+  let block_id = Hashtbl.find genv.var_table_index block.repr in
+  let block_vars =
+    Variable.Set.fold
+      (fun v map -> Variable.Map.add v (Hashtbl.find genv.var_eq v) map)
+      block.members Variable.Map.empty
+  in
+  let lenv =
+    { defined_vars= Variable.Map.empty
+    ; block_vars
+    ; rom_var= genv.rom_var
+    ; ram_var= genv.ram_var
+    ; var_pos= genv.var_pos
+    ; var_compare= genv.var_compare
+    ; reg_vars= genv.reg_vars }
+  in
+  let pp_fun =
+    match Hashtbl.find genv.var_pos block.repr with
+    | Global f ->
+        f
+    | _ ->
+        assert false
+  in
   let () =
     fprintf ppf
       "@[<v>value_t %a {@;\
        <0 4>@[<v>if (%s[%i] == %s) {@;\
        <0 4>@[<h>return %s[%i];@]@,\
        } else {@;\
-       <0 4>@[<v>" var_fun block.repr vars_last_update block_id cycle_id
-      vars_values block_id
+       <0 4>@[<v>" pp_fun () vars_last_update block_id cycle_id vars_values
+      block_id
   in
-  let _ = c_of_expr (env, Variable.Set.empty) ppf (block.repr, repr_eq) in
+  let lenv = c_of_expr lenv ppf block.repr in
+  let pp_var = Variable.Map.find block.repr lenv.defined_vars in
   let () =
     fprintf ppf "@,%s[%i] = %a;@,%s[%i] = %s;@,return %a;@]@,}@]@,}@]"
-      vars_values block_id Variable.pp block.repr vars_last_update block_id
-      cycle_id Variable.pp block.repr
+      vars_values block_id pp_var () vars_last_update block_id cycle_id pp_var
+      ()
   in
   ()
 
-let block_def ppf block = fprintf ppf "value_t %a;" var_fun block.repr
-
-let do_cycle_fun ppf genv =
+let do_cycle_fun ppf (genv : global_env) =
   let get_var_value ppf v =
     match Hashtbl.find genv.var_pos v with
     | Local ->
-        failwith "Not possible !"
-    | Global ->
-        var_fun ppf v
-    | Input ->
-        fprintf ppf "%s[%i]" inputs_values (Variable.Map.find v genv.inputs)
+        assert false
+    | Global g ->
+        g ppf ()
+    | Input i ->
+        i ppf ()
   in
   let () =
     fprintf ppf
@@ -264,42 +354,44 @@ let do_cycle_fun ppf genv =
       cycle_id cycle_id
   in
   let () =
-    if
-      Variable.Map.is_empty genv.inputs
-      && Variable.Set.is_empty genv.axioms.out_vars
+    if Variable.Set.is_empty genv.inputs && Variable.Set.is_empty genv.outputs
     then ()
     else fprintf ppf "@,fprintf(stdout, \"\\nStep: %%lu\\n\", %s);@,@," cycle_id
   in
   let () =
-    if Variable.Map.is_empty genv.inputs then ()
+    if Variable.Set.is_empty genv.inputs then ()
     else
       fprintf ppf "/* Retrieve Inputs */@,%a@,@,"
-        (pp_print_list (fun ppf (var, index) ->
-             fprintf ppf "%s[%i] = get_input(\"%a\", %i);" inputs_values index
-               Variable.pp var (Variable.size var) ) )
-        (Variable.Map.bindings genv.inputs)
+        (pp_print_seq (fun ppf var ->
+             let pp =
+               match Hashtbl.find genv.var_pos var with
+               | Input f ->
+                   f
+               | _ ->
+                   assert false
+             in
+             fprintf ppf "%a = get_input(\"%a\", %i);" pp () Variable.pp var
+               (Variable.size var) ) )
+        (Variable.Set.to_seq genv.inputs)
   in
   let () =
-    if Variable.Set.is_empty genv.axioms.reg_vars then ()
-    else
-      let reg_vars = Variable.Set.elements genv.axioms.reg_vars in
+    if Hashtbl.length genv.reg_vars <> 0 then
       fprintf ppf "/* Compute Registers */@,%a@,@,"
-        (pp_print_list (fun ppf v ->
-             fprintf ppf "@[<h>%a = %a;@]"
-               (reg_current_value genv.reg_index)
-               v var_fun v ) )
-        reg_vars
+        (pp_print_seq (fun ppf (reg, (_, current_reg)) ->
+             fprintf ppf "@[<h>%a = %a;@]" current_reg () get_var_value reg ) )
+        (Hashtbl.to_seq genv.reg_vars)
   in
   let () =
-    if Variable.Set.is_empty genv.axioms.out_vars then ()
+    if Variable.Set.is_empty genv.outputs then ()
     else
-      let outvars = Variable.Set.elements genv.axioms.out_vars in
+      let var_out ppf v = fprintf ppf "out_%a" Variable.pp v in
+      let outvars = Variable.Set.to_seq genv.outputs in
       fprintf ppf "/* Compute Outputs */@,%a@,@,print_header(stdout);@,%a@,@,"
-        (pp_print_list (fun ppf v ->
+        (pp_print_seq (fun ppf v ->
              fprintf ppf "@[<h>value_t %a = %a;@]" var_out v get_var_value v )
         )
         outvars
-        (pp_print_list (fun ppf v ->
+        (pp_print_seq (fun ppf v ->
              fprintf ppf "print_variable(stdout, \"%a\", %a, %i);" Variable.pp v
                var_out v (Variable.size v) ) )
         outvars
@@ -314,24 +406,33 @@ let do_cycle_fun ppf genv =
     match genv.ram_var with
     | None ->
         ()
-    | Some ram_var ->
-        fprintf ppf "/* Performs Write */@,%a@,"
-          (fun ppf ram_var ->
-            match Hashtbl.find genv.var_eq ram_var with
-            | Ram ramd ->
-                fprintf ppf
-                  "@[<v>if (%a) {@;<0 4>@[<h>ram_set(%a, %a, %a);@]@,}@]@,"
-                  pp_arg ramd.write_enable var_ram ram_var pp_arg
-                  ramd.write_addr pp_arg ramd.write_data
-            | _ ->
-                assert false )
-          ram_var
+    | Some (ram_var, ram_pp) -> (
+      match Hashtbl.find genv.var_eq ram_var with
+      | Ram ramd ->
+          let () =
+            fprintf ppf
+              "/* Performs Writes */@,\
+               @[<v>if (%a) {@;\
+               <0 4>@[<h>ram_set(%a, %a, %a);@]@,\
+               }@]@,"
+              pp_arg ramd.write_enable ram_pp () pp_arg ramd.write_addr pp_arg
+              ramd.write_data
+          in
+          let () =
+            if genv.with_tick then fprintf ppf "clock_tick(%a);@," ram_pp ()
+          in
+          ()
+      | _ ->
+          assert false )
   in
-  let () = if genv.with_pause then fprintf ppf "getchar();@," in
+  let () =
+    if genv.with_pause then
+      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 1 17
+  in
   let () = fprintf ppf "return %s;@]@,}@]@,@," need_stop in
   ()
 
-let init_rom_fun ppf genv =
+let init_rom_fun ppf (genv : global_env) =
   let () =
     fprintf ppf "@[<v>void init_rom(const char *rom_file) {@;<0 4>@[<v>"
   in
@@ -339,7 +440,7 @@ let init_rom_fun ppf genv =
     match genv.rom_var with
     | None ->
         ()
-    | Some rom_var ->
+    | Some (_, rom_pp) ->
         fprintf ppf
           "if (rom_file == NULL) {@;\
            <0 4>@[<v>fprintf(stdout, \"Error: Expected a ROM File.\\n\");@,\
@@ -347,79 +448,84 @@ let init_rom_fun ppf genv =
            } else {@;\
            <0 4>@[<h>%a = rom_from_file(rom_file);@]@,\
            }@]"
-          var_rom rom_var
+          rom_pp ()
   in
   let () = fprintf ppf "@]@,}@,@," in
   ()
 
-let init_ram_fun ppf genv =
+let init_ram_fun ppf (genv : global_env) =
   let () =
     fprintf ppf "@[<v>void init_ram(const char *ram_file) {@;<0 4>@[<v>"
   in
-  let () =
-    match genv.ram_var with
-    | None ->
-        ()
-    | Some ram_var ->
-        let () =
+  match genv.ram_var with
+  | None ->
+      ()
+  | Some (_, ram_pp) ->
+      let () =
+        fprintf ppf
+          "if (ram_file == NULL) {@;\
+           <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
+           exit(1);@]@,\
+           } else {@;\
+           <0 4>@[<v>%a = ram_from_file(ram_file);" ram_pp ()
+      in
+      let () =
+        if genv.with_screen then
+          fprintf ppf "@,screen_init_with_ram_mapping(%a);" ram_pp ()
+      in
+      let () =
+        if genv.with_debug then
           fprintf ppf
-            "if (ram_file == NULL) {@;\
-             <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
-             exit(1);@]@,\
-             } else {@;\
-             <0 4>@[<v>%a = ram_from_file(ram_file);" var_ram ram_var
-        in
-        let () =
-          if genv.with_screen then
-            fprintf ppf "@,screen_init_with_ram_mapping(%a);" var_ram ram_var
-        in
-        let () = fprintf ppf "@]@,}@]" in
-        ()
-  in
-  let () = fprintf ppf "@]@,}@,@," in
-  ()
+            "@,\
+             ram_install_read_debugger(%a, %b);@,\
+             ram_install_write_debugger(%a, %b);" ram_pp () genv.with_screen
+            ram_pp () genv.with_screen
+      in
+      let () = fprintf ppf "@]@,}@]" in
+      let () = fprintf ppf "@]@,}@,@," in
+      ()
 
-let end_simul_fun ppf env =
+let end_simul_fun ppf (genv : global_env) =
   let () =
     fprintf ppf
       "/* End Simulation Function */@,@[<v>void end_simulation() {@;<0 4>@[<v>"
   in
   let () =
-    match env.rom_var with
+    match genv.rom_var with
     | None ->
         ()
-    | Some rom_var ->
-        fprintf ppf "@[<v>/* Free Rom */@,rom_destroy(%a);@]@,@," var_rom
-          rom_var
+    | Some (_, rom_pp) ->
+        fprintf ppf "@[<v>/* Free Rom */@,rom_destroy(%a);@]@,@," rom_pp ()
   in
   let () =
-    match env.ram_var with
+    match genv.ram_var with
     | None ->
         ()
-    | Some ram_var ->
-        fprintf ppf "@[<v>/* Free Ram */@,ram_destroy(%a);@]@," var_ram ram_var
+    | Some (_, ram_pp) ->
+        fprintf ppf "@[<v>/* Free Ram */@,ram_destroy(%a);@]@,@," ram_pp ()
   in
   let () =
-    if env.with_screen then
+    if genv.with_screen then
       fprintf ppf
         "@[<v>/* Restore Screen */@,\
          screen_terminate();@,\
          fprintf(stdout,\"\\n\");@]@,"
   in
+  let () =
+    if genv.with_debug then
+      fprintf ppf "@[<v>fprintf(stdout,\"Number of cycle: %%i\\n\", %s);@]@,"
+        cycle_id
+  in
   let () = fprintf ppf "@]@,}@]@," in
   ()
 
-let pp_prog ppf genv =
+let pp_prog ppf (genv : global_env) =
   let array_size = Hashtbl.length genv.var_table_index in
-  let nb_regs = Hashtbl.length genv.reg_index in
-  let nb_inputs = Variable.Map.cardinal genv.inputs in
+  let nb_regs = Hashtbl.length genv.reg_vars in
+  let nb_inputs = Variable.Set.cardinal genv.inputs in
   let () =
     fprintf ppf
-      "@[<v>/* Includes */@,\
-       #include \"commons.h\"@,\
-       #include \"memory.h\"@,\
-       #include \"screen.h\"@,\
-       @,"
+      "@[<v>/* Includes */@,#include \"commons.h\"@,#include \"screen.h\"@,@,"
   in
   let () =
     fprintf ppf "/* Globals Vars */@,cycle_t %s = 0;@,bool %s = false;@,"
@@ -440,23 +546,28 @@ let pp_prog ppf genv =
   in
   let () =
     match genv.rom_var with
+    | Some (_, pp_rom) ->
+        fprintf ppf "@[<v>/* ROM Declaration */@,rom_t %a;@,@]@," pp_rom ()
     | None ->
         ()
-    | Some rom_var ->
-        fprintf ppf "@[<v>/* ROM Declaration */@,rom_t %a;@,@]@," var_rom
-          rom_var
   in
   let () =
     match genv.ram_var with
+    | Some (_, pp_ram) ->
+        fprintf ppf "@[<v>/* RAM Declaration */@,ram_t* %a;@,@]@," pp_ram ()
     | None ->
         ()
-    | Some ram_var ->
-        fprintf ppf "@[<v>/* RAM Declaration */@,ram_t* %a;@,@]@," var_ram
-          ram_var
   in
   let () =
-    fprintf ppf "/* Blocks Declarations */@,%a@,@," (pp_print_list block_def)
-      genv.blocks
+    fprintf ppf "/* Blocks Declarations */@,%a@,@,"
+      (pp_print_seq
+         ~pp_sep:(fun ppf () -> ignore ppf)
+         (fun ppf -> function
+           | Input _ | Local ->
+               ()
+           | Global pp ->
+               fprintf ppf "value_t %a;@," pp () ) )
+      (Hashtbl.to_seq_values genv.var_pos)
   in
   let () =
     fprintf ppf "/* Blocks Implementations */@,%a@,@,"
@@ -471,14 +582,25 @@ let pp_prog ppf genv =
   let () = end_simul_fun ppf genv in
   fprintf ppf "@]@."
 
-let create_env (program : program) blocks with_screen with_pause =
+let create_env (program : program) blocks with_screen with_pause with_debug
+    with_tick =
   let var_pos = Hashtbl.create 17 in
+  let () =
+    Variable.Set.fold
+      (fun v index ->
+        Hashtbl.add var_pos v
+          (Input (fun ppf () -> fprintf ppf "%s[%i]" inputs_values index)) ;
+        index + 1 )
+      program.input_vars 0
+    |> ignore
+  in
   let () =
     Variable.Set.iter
       (fun v ->
-        if Variable.Set.mem v program.input_vars then
-          Hashtbl.add var_pos v Input
-        else if Variable.Map.mem v blocks then Hashtbl.add var_pos v Global
+        if Variable.Set.mem v program.input_vars then ()
+        else if Variable.Map.mem v blocks then
+          Hashtbl.add var_pos v
+            (Global (fun ppf () -> fprintf ppf "fun%a()" Variable.pp v))
         else Hashtbl.add var_pos v Local )
       program.vars
   in
@@ -491,28 +613,45 @@ let create_env (program : program) blocks with_screen with_pause =
         b )
       blocks
   in
-  let reg_index = Hashtbl.create 17 in
-  let _ =
+  let rom_var =
+    Option.map
+      (fun v -> (v, fun ppf () -> fprintf ppf "rom%a" Variable.pp v))
+      program.rom_var
+  in
+  let ram_var =
+    Option.map
+      (fun v -> (v, fun ppf () -> fprintf ppf "ram%a" Variable.pp v))
+      program.ram_var
+  in
+  let reg_vars = Hashtbl.create 17 in
+  let () =
     Variable.Set.fold
       (fun v index ->
-        Hashtbl.add reg_index v index ;
+        Hashtbl.add reg_vars v
+          ( (fun ppf () ->
+              fprintf ppf "%s[2*%i + ((%s+1)%%2)]" regs_values index cycle_id )
+          , fun ppf () ->
+              fprintf ppf "%s[2*%i + ((%s)%%2)]" regs_values index cycle_id ) ;
         index + 1 )
       program.axioms.reg_vars 0
+    |> ignore
   in
-  let inputs, _ =
-    Variable.Set.fold
-      (fun v (acc, index) -> (Variable.Map.add v index acc, index + 1))
-      program.input_vars (Variable.Map.empty, 0)
-  in
-  { var_pos
-  ; var_table_index
-  ; var_eq= program.eqs
-  ; reg_index
-  ; rom_var= program.rom_var
-  ; ram_var= program.ram_var
-  ; axioms= program.axioms
-  ; vars= program.vars
-  ; blocks
-  ; inputs
-  ; with_screen
-  ; with_pause }
+  ( { var_table_index
+    ; var_pos
+    ; var_eq= program.eqs
+    ; rom_var
+    ; ram_var
+    ; var_compare=
+        (fun a b ->
+          Int.compare
+            (Hashtbl.find program.order a)
+            (Hashtbl.find program.order b) )
+    ; blocks
+    ; with_debug
+    ; inputs= program.input_vars
+    ; outputs= program.output_vars
+    ; reg_vars
+    ; with_screen
+    ; with_pause
+    ; with_tick }
+    : global_env )

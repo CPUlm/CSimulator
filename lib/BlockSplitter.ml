@@ -17,6 +17,38 @@ let fresh_color =
   let cpt = ref 0 in
   fun () -> incr cpt ; Color !cpt
 
+let check_acyclic (colors, blocks) =
+  let module ColorGraph = Graph.Make (struct
+    type t = color
+
+    let compare (Color a) (Color b) = Int.compare a b
+  end) in
+  let g = ColorGraph.empty () in
+  let () =
+    Variable.Map.iter
+      (fun _ block ->
+        let col = Hashtbl.find colors block.repr in
+        ColorGraph.add_node g col )
+      blocks
+  in
+  let () =
+    Variable.Map.iter
+      (fun _ block ->
+        let block_col = Hashtbl.find colors block.repr in
+        Variable.Set.iter
+          (fun v ->
+            let parent_col = Hashtbl.find colors v in
+            if parent_col = block_col then Format.printf "Wthy ?"
+            else ColorGraph.add_edge g parent_col block_col )
+          block.deps )
+      blocks
+  in
+  let g = ColorGraph.freeze g in
+  try
+    let _ = ColorGraph.topological g in
+    ()
+  with ColorGraph.Cycle -> failwith "Produced block graph is Cyclic"
+
 let split program =
   let need_block =
     Variable.Set.(union program.axioms.out_vars program.axioms.reg_vars)
@@ -69,9 +101,6 @@ let split program =
         (* We extract the min node (respecting the topological order) *)
         let node = VarHeap.find_min to_process in
         let to_process = VarHeap.del_min to_process in
-        (* We retrieve its parents & children *)
-        let childrens = VarGraph.children program.deps_graph node in
-        let parents = VarGraph.parents program.deps_graph node in
         (* If :
            - this node is not colored
            - all its children are colored with the current fresh color
@@ -85,22 +114,29 @@ let split program =
                      col = fresh_col
                  | None ->
                      false )
-               childrens
+               (VarGraph.children program.deps_graph node)
           && not (Variable.Set.mem node need_block)
         then (
           (* We color it with the fresh color *)
           Hashtbl.add colors node fresh_col ;
           node_colored := node :: !node_colored ;
           (* And add its parents to the node to be processed. *)
+          let parents = VarGraph.parents program.deps_graph node in
           let to_process =
             VarGraph.Set.fold (fun v h -> VarHeap.add v h) parents to_process
           in
           (* And we process them *)
           loop to_process )
-        else (
+        else
           (* Nothing can be done. *)
-          deps := node :: !deps ;
-          loop to_process )
+          let () =
+            match Hashtbl.find_opt colors node with
+            | Some c ->
+                if c <> fresh_col then deps := node :: !deps
+            | None ->
+                ()
+          in
+          loop to_process
     in
     loop to_process ; (!node_colored, !deps)
   in
@@ -135,4 +171,5 @@ let split program =
         Variable.Map.add repr {repr; members; deps} bset )
       Variable.Map.empty blocks
   in
+  let () = check_acyclic (colors, blocks) in
   (colors, blocks)

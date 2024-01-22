@@ -90,6 +90,7 @@ let mk_mux x y z =
   if s <> sizeof_arg z then raise (ParsingError "Size Missmatch")
   else if sizeof_arg x <> 1 then
     raise (ParsingError "Mux with a variable not of size 1")
+  else if z = y then (Arg y, s)
   else (Mux {cond= x; true_b= y; false_b= z}, s)
 
 let mk_rom addr_size word_size read_addr =
