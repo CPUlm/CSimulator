@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "memory.h"
+
 typedef uint_fast32_t value_t;
 typedef uint_fast32_t cycle_t;
 typedef unsigned char bus_size_t;
@@ -16,3 +18,4 @@ void init_rom(const char *rom_file);
 void init_ram(const char *ram_file);
 
 void end_simulation();
+void clock_tick(ram_t *ram);

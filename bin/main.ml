@@ -10,6 +10,8 @@ let screen = ref true
 
 let cleanup = ref true
 
+let tick = ref true
+
 let debug = ref false
 
 let pause = ref false
@@ -49,7 +51,10 @@ let spec =
       , " Pause the program at each cycle." )
     ; ( "--debug"
       , Arg.Unit (fun () -> debug := true)
-      , " Print  RAM debug info on the screen." )
+      , " Print RAM debug info on the screen." )
+    ; ( "--disable-tick"
+      , Arg.Unit (fun () -> tick := false)
+      , " Disable the code that set ram[1024] to 1 each seconds." )
     ; ("--quiet", Arg.Set quiet, " Produce a quiet program.") ]
 
 let filename, out_dir =
@@ -157,5 +162,7 @@ let () =
         assert false
     | Some out_dir ->
         let _, blocks = BlockSplitter.split program in
-        let genv = WriteLogic.create_env program blocks !screen !pause !debug in
+        let genv =
+          WriteLogic.create_env program blocks !screen !pause !debug !tick
+        in
         ToC.export_into out_dir genv )

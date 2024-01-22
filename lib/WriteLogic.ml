@@ -36,6 +36,7 @@ type global_env =
   ; with_pause: bool
   ; with_screen: bool
   ; with_debug: bool
+  ; with_tick: bool
   ; blocks: block list }
 
 type local_env =
@@ -408,13 +409,19 @@ let do_cycle_fun ppf (genv : global_env) =
     | Some (ram_var, ram_pp) -> (
       match Hashtbl.find genv.var_eq ram_var with
       | Ram ramd ->
-          fprintf ppf
-            "/* Performs Writes */@,\
-             @[<v>if (%a) {@;\
-             <0 4>@[<h>ram_set(%a, %a, %a);@]@,\
-             }@]@,"
-            pp_arg ramd.write_enable ram_pp () pp_arg ramd.write_addr pp_arg
-            ramd.write_data
+          let () =
+            fprintf ppf
+              "/* Performs Writes */@,\
+               @[<v>if (%a) {@;\
+               <0 4>@[<h>ram_set(%a, %a, %a);@]@,\
+               }@]@,"
+              pp_arg ramd.write_enable ram_pp () pp_arg ramd.write_addr pp_arg
+              ramd.write_data
+          in
+          let () =
+            if genv.with_tick then fprintf ppf "clock_tick(%a);@," ram_pp ()
+          in
+          ()
       | _ ->
           assert false )
   in
@@ -518,11 +525,7 @@ let pp_prog ppf (genv : global_env) =
   let nb_inputs = Variable.Set.cardinal genv.inputs in
   let () =
     fprintf ppf
-      "@[<v>/* Includes */@,\
-       #include \"commons.h\"@,\
-       #include \"memory.h\"@,\
-       #include \"screen.h\"@,\
-       @,"
+      "@[<v>/* Includes */@,#include \"commons.h\"@,#include \"screen.h\"@,@,"
   in
   let () =
     fprintf ppf "/* Globals Vars */@,cycle_t %s = 0;@,bool %s = false;@,"
@@ -579,7 +582,8 @@ let pp_prog ppf (genv : global_env) =
   let () = end_simul_fun ppf genv in
   fprintf ppf "@]@."
 
-let create_env (program : program) blocks with_screen with_pause with_debug =
+let create_env (program : program) blocks with_screen with_pause with_debug
+    with_tick =
   let var_pos = Hashtbl.create 17 in
   let () =
     Variable.Set.fold
@@ -648,5 +652,6 @@ let create_env (program : program) blocks with_screen with_pause with_debug =
     ; outputs= program.output_vars
     ; reg_vars
     ; with_screen
-    ; with_pause }
+    ; with_pause
+    ; with_tick }
     : global_env )

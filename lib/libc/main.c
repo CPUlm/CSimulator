@@ -4,7 +4,20 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <errno.h>
+#include <time.h>
 #include <string.h>
+
+static time_t last_tick = 0;
+
+void clock_tick(ram_t *ram)
+{
+    time_t current_time = time(NULL);
+    if (difftime(current_time, last_tick) >= 1.0)
+    {
+        ram_set(ram, 1024, 1);
+        last_tick = current_time;
+    }
+}
 
 static char *char_repr[256] = {
     "00000000", "00000001", "00000010", "00000011", "00000100", "00000101", "00000110", "00000111", "00001000",
@@ -41,22 +54,6 @@ static char strbuf[256] = {0};
 
 const char *to_binary_str(value_t v, bus_size_t size)
 {
-#ifdef MODE_64_BIT
-    char *begin = strbuf + 2;
-
-    strncpy(begin + 0, char_repr[(v >> 56) & 0xff], 8);
-    strncpy(begin + 8, char_repr[(v >> 48) & 0xff], 8);
-    strncpy(begin + 16, char_repr[(v >> 40) & 0xff], 8);
-    strncpy(begin + 24, char_repr[(v >> 32) & 0xff], 8);
-    strncpy(begin + 32, char_repr[(v >> 24) & 0xff], 8);
-    strncpy(begin + 40, char_repr[(v >> 16) & 0xff], 8);
-    strncpy(begin + 48, char_repr[(v >> 8) & 0xff], 8);
-    strncpy(begin + 56, char_repr[(v >> 0) & 0xff], 8);
-    begin[size] = '\0';
-
-    char *str = strbuf + 64 - size;
-    return strncpy(str, "0b", 2);
-#endif
     char *begin = strbuf + 2;
 
     strncpy(begin + 0, char_repr[(v >> 24) & 0xff], 8);
