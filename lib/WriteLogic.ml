@@ -25,8 +25,8 @@ type global_env =
   ; var_pos: (Variable.t, loc) Hashtbl.t
   ; var_table_index: (Variable.t, int) Hashtbl.t
   ; var_eq: (Variable.t, exp) Hashtbl.t
-  ; rom_vars: (Variable.t, formatter -> unit -> unit) Hashtbl.t
-  ; ram_vars: (Variable.t, formatter -> unit -> unit) Hashtbl.t
+  ; rom_var: (Variable.t * (formatter -> unit -> unit)) option
+  ; ram_var: (Variable.t * (formatter -> unit -> unit)) option
   ; reg_vars:
       ( Variable.t
       , (formatter -> unit -> unit) * (formatter -> unit -> unit) )
@@ -40,8 +40,8 @@ type global_env =
 
 type local_env =
   { var_pos: (Variable.t, loc) Hashtbl.t
-  ; rom_vars: (Variable.t, formatter -> unit -> unit) Hashtbl.t
-  ; ram_vars: (Variable.t, formatter -> unit -> unit) Hashtbl.t
+  ; rom_var: (Variable.t * (formatter -> unit -> unit)) option
+  ; ram_var: (Variable.t * (formatter -> unit -> unit)) option
   ; reg_vars:
       ( Variable.t
       , (formatter -> unit -> unit) * (formatter -> unit -> unit) )
@@ -198,7 +198,7 @@ and c_of_expr lenv ppf var =
         let true_loc_needed = needed_vars lenv md.true_b in
         let false_loc_needed = needed_vars lenv md.false_b in
         let local_vars_needed =
-          Variable.Set.(inter true_loc_needed false_loc_needed |> to_list)
+          Variable.Set.(inter true_loc_needed false_loc_needed |> elements)
           |> List.sort lenv.var_compare
         in
         let lenv =
@@ -225,7 +225,13 @@ and c_of_expr lenv ppf var =
         in
         lenv
     | Rom romd ->
-        let rom_var = Hashtbl.find lenv.rom_vars var in
+        let rom_var =
+          match lenv.rom_var with
+          | Some (_, rom_pp) ->
+              rom_pp
+          | None ->
+              assert false
+        in
         let max_addr = Int64.(sub (shift_left one romd.addr_size) one) in
         let lenv, pp_before, pp_arg = process_arg lenv romd.read_addr in
         let () = pp_before ppf () in
@@ -242,7 +248,13 @@ and c_of_expr lenv ppf var =
         in
         lenv
     | Ram ramd ->
-        let ram_var = Hashtbl.find lenv.ram_vars var in
+        let ram_var =
+          match lenv.ram_var with
+          | Some (_, ram_pp) ->
+              ram_pp
+          | None ->
+              assert false
+        in
         let lenv, pp_before, pp_arg = process_arg lenv ramd.read_addr in
         let () = pp_before ppf () in
         let () =
@@ -289,8 +301,8 @@ let block_fun genv ppf block =
   let lenv =
     { defined_vars= Variable.Map.empty
     ; block_vars
-    ; rom_vars= genv.rom_vars
-    ; ram_vars= genv.ram_vars
+    ; rom_var= genv.rom_var
+    ; ram_var= genv.ram_var
     ; var_pos= genv.var_pos
     ; var_compare= genv.var_compare
     ; reg_vars= genv.reg_vars }
@@ -390,22 +402,21 @@ let do_cycle_fun ppf (genv : global_env) =
         pp_print_int ppf c.value
   in
   let () =
-    if Hashtbl.length genv.ram_vars <> 0 then
-      fprintf ppf "/* Performs Writes */@,%a@,"
-        (pp_print_seq (fun ppf (ram_var, ram_pp) ->
-             match Hashtbl.find genv.var_eq ram_var with
-             | Ram ramd ->
-                 fprintf ppf
-                   "{@;\
-                    <0 4>@[<v>if (%a) {@;\
-                    <0 4>@[<h>ram_set(%a, %a, %a);@]@,\
-                    }@]@,\
-                    }@,"
-                   pp_arg ramd.write_enable ram_pp () pp_arg ramd.write_addr
-                   pp_arg ramd.write_data
-             | _ ->
-                 assert false ) )
-        (Hashtbl.to_seq genv.ram_vars)
+    match genv.ram_var with
+    | None ->
+        ()
+    | Some (ram_var, ram_pp) -> (
+      match Hashtbl.find genv.var_eq ram_var with
+      | Ram ramd ->
+          fprintf ppf
+            "/* Performs Writes */@,\
+             @[<v>if (%a) {@;\
+             <0 4>@[<h>ram_set(%a, %a, %a);@]@,\
+             }@]@,"
+            pp_arg ramd.write_enable ram_pp () pp_arg ramd.write_addr pp_arg
+            ramd.write_data
+      | _ ->
+          assert false )
   in
   let () =
     if genv.with_pause then
@@ -419,24 +430,18 @@ let init_rom_fun ppf (genv : global_env) =
     fprintf ppf "@[<v>void init_rom(const char *rom_file) {@;<0 4>@[<v>"
   in
   let () =
-    if Hashtbl.length genv.rom_vars > 1 then failwith "Too many ROM Blocks"
-    else if Hashtbl.length genv.rom_vars = 0 then ()
-    else
-      let _, rom_pp =
-        match Hashtbl.to_seq genv.rom_vars |> Seq.uncons with
-        | Some ((x, y), _) ->
-            (x, y)
-        | None ->
-            assert false
-      in
-      fprintf ppf
-        "if (rom_file == NULL) {@;\
-         <0 4>@[<v>fprintf(stdout, \"Error: Expected a ROM File.\\n\");@,\
-         exit(1);@]@,\
-         } else {@;\
-         <0 4>@[<h>%a = rom_from_file(rom_file);@]@,\
-         }@]"
-        rom_pp ()
+    match genv.rom_var with
+    | None ->
+        ()
+    | Some (_, rom_pp) ->
+        fprintf ppf
+          "if (rom_file == NULL) {@;\
+           <0 4>@[<v>fprintf(stdout, \"Error: Expected a ROM File.\\n\");@,\
+           exit(1);@]@,\
+           } else {@;\
+           <0 4>@[<h>%a = rom_from_file(rom_file);@]@,\
+           }@]"
+          rom_pp ()
   in
   let () = fprintf ppf "@]@,}@,@," in
   ()
@@ -445,41 +450,33 @@ let init_ram_fun ppf (genv : global_env) =
   let () =
     fprintf ppf "@[<v>void init_ram(const char *ram_file) {@;<0 4>@[<v>"
   in
-  if Hashtbl.length genv.ram_vars > 1 then failwith "Too many RAM Blocks"
-  else if Hashtbl.length genv.ram_vars = 0 then ()
-  else
-    let _, ram_pp =
-      match Hashtbl.to_seq genv.ram_vars |> Seq.uncons with
-      | Some ((x, y), _) ->
-          (x, y)
-      | None ->
-          assert false
-    in
-    let () =
-      fprintf ppf
-        "if (ram_file == NULL) {@;\
-         <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
-         exit(1);@]@,\
-         } else {@;\
-         <0 4>@[<v>%a = ram_from_file(ram_file);" ram_pp ()
-    in
-    let () =
-      if genv.with_screen then
-        fprintf ppf "@,screen_init_with_ram_mapping(%a);" ram_pp ()
-    in
-    let () =
-      if genv.with_debug then
-        fprintf ppf "@,ram_install_read_debugger(%a, %b);" ram_pp ()
-          genv.with_screen
-    in
-    let () =
-      if genv.with_debug then
-        fprintf ppf "@,ram_install_write_debugger(%a, %b);" ram_pp ()
-          genv.with_screen
-    in
-    let () = fprintf ppf "@]@,}@]" in
-    let () = fprintf ppf "@]@,}@,@," in
-    ()
+  match genv.ram_var with
+  | None ->
+      ()
+  | Some (_, ram_pp) ->
+      let () =
+        fprintf ppf
+          "if (ram_file == NULL) {@;\
+           <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
+           exit(1);@]@,\
+           } else {@;\
+           <0 4>@[<v>%a = ram_from_file(ram_file);" ram_pp ()
+      in
+      let () =
+        if genv.with_screen then
+          fprintf ppf "@,screen_init_with_ram_mapping(%a);" ram_pp ()
+      in
+      let () =
+        if genv.with_debug then
+          fprintf ppf
+            "@,\
+             ram_install_read_debugger(%a, %b);@,\
+             ram_install_write_debugger(%a, %b);" ram_pp () genv.with_screen
+            ram_pp () genv.with_screen
+      in
+      let () = fprintf ppf "@]@,}@]" in
+      let () = fprintf ppf "@]@,}@,@," in
+      ()
 
 let end_simul_fun ppf (genv : global_env) =
   let () =
@@ -487,18 +484,18 @@ let end_simul_fun ppf (genv : global_env) =
       "/* End Simulation Function */@,@[<v>void end_simulation() {@;<0 4>@[<v>"
   in
   let () =
-    if Hashtbl.length genv.rom_vars <> 0 then
-      fprintf ppf "@[<v>/* Free Rom */@,%a@]@,@,"
-        (pp_print_seq (fun ppf rom_pp ->
-             fprintf ppf "rom_destroy(%a);" rom_pp () ) )
-        (Hashtbl.to_seq_values genv.rom_vars)
+    match genv.rom_var with
+    | None ->
+        ()
+    | Some (_, rom_pp) ->
+        fprintf ppf "@[<v>/* Free Rom */@,rom_destroy(%a);@]@,@," rom_pp ()
   in
   let () =
-    if Hashtbl.length genv.ram_vars <> 0 then
-      fprintf ppf "@[<v>/* Free Ram */@,%a@]@,@,"
-        (pp_print_seq (fun ppf ram_pp ->
-             fprintf ppf "ram_destroy(%a);" ram_pp () ) )
-        (Hashtbl.to_seq_values genv.ram_vars)
+    match genv.ram_var with
+    | None ->
+        ()
+    | Some (_, ram_pp) ->
+        fprintf ppf "@[<v>/* Free Ram */@,ram_destroy(%a);@]@,@," ram_pp ()
   in
   let () =
     if genv.with_screen then
@@ -545,16 +542,18 @@ let pp_prog ppf (genv : global_env) =
       fprintf ppf "value_t %s[%i] = {0};@,@," inputs_values nb_inputs
   in
   let () =
-    if Hashtbl.length genv.rom_vars <> 0 then
-      fprintf ppf "@[<v>/* ROM Declaration */@,%a@,@]@,"
-        (pp_print_seq (fun ppf pp_rom -> fprintf ppf "rom_t %a;" pp_rom ()))
-        (Hashtbl.to_seq_values genv.rom_vars)
+    match genv.rom_var with
+    | Some (_, pp_rom) ->
+        fprintf ppf "@[<v>/* ROM Declaration */@,rom_t %a;@,@]@," pp_rom ()
+    | None ->
+        ()
   in
   let () =
-    if Hashtbl.length genv.ram_vars <> 0 then
-      fprintf ppf "@[<v>/* RAM Declaration */@,%a@,@]@,"
-        (pp_print_seq (fun ppf pp_ram -> fprintf ppf "ram_t* %a;" pp_ram ()))
-        (Hashtbl.to_seq_values genv.ram_vars)
+    match genv.ram_var with
+    | Some (_, pp_ram) ->
+        fprintf ppf "@[<v>/* RAM Declaration */@,ram_t* %a;@,@]@," pp_ram ()
+    | None ->
+        ()
   in
   let () =
     fprintf ppf "/* Blocks Declarations */@,%a@,@,"
@@ -610,21 +609,15 @@ let create_env (program : program) blocks with_screen with_pause with_debug =
         b )
       blocks
   in
-  let rom_vars = Hashtbl.create 17 in
-  let () =
-    match program.rom_var with
-    | Some v ->
-        Hashtbl.add rom_vars v (fun ppf () -> fprintf ppf "rom%a" Variable.pp v)
-    | None ->
-        ()
+  let rom_var =
+    Option.map
+      (fun v -> (v, fun ppf () -> fprintf ppf "rom%a" Variable.pp v))
+      program.rom_var
   in
-  let ram_vars = Hashtbl.create 17 in
-  let () =
-    match program.ram_var with
-    | Some v ->
-        Hashtbl.add ram_vars v (fun ppf () -> fprintf ppf "ram%a" Variable.pp v)
-    | None ->
-        ()
+  let ram_var =
+    Option.map
+      (fun v -> (v, fun ppf () -> fprintf ppf "ram%a" Variable.pp v))
+      program.ram_var
   in
   let reg_vars = Hashtbl.create 17 in
   let () =
@@ -642,8 +635,8 @@ let create_env (program : program) blocks with_screen with_pause with_debug =
   ( { var_table_index
     ; var_pos
     ; var_eq= program.eqs
-    ; rom_vars
-    ; ram_vars
+    ; rom_var
+    ; ram_var
     ; var_compare=
         (fun a b ->
           Int.compare
