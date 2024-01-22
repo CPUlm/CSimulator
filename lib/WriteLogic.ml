@@ -427,7 +427,7 @@ let do_cycle_fun ppf (genv : global_env) =
   in
   let () =
     if genv.with_pause then
-      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 1 17
+      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 1 20
   in
   let () = fprintf ppf "return %s;@]@,}@]@,@," need_stop in
   ()
@@ -508,8 +508,13 @@ let end_simul_fun ppf (genv : global_env) =
     if genv.with_screen then
       fprintf ppf
         "@[<v>/* Restore Screen */@,\
+         printf(\"\\x1b[%d;%dH\");@,\
+         fflush(stdout);@,\
          screen_terminate();@,\
-         fprintf(stdout,\"\\n\");@]@,"
+         fprintf(stdout,\"\\n\");@,\
+         fflush(stdout);@,\
+         @]@,"
+        1 20
   in
   let () =
     if genv.with_debug then

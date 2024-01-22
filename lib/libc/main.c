@@ -191,6 +191,7 @@ static int strendswith(const char *s, const char *t)
 int main(int argc, char **argv)
 {
     signal(SIGINT, sig_handler);
+    signal(SIGTERM, sig_handler);
 
     cycle_t nb_cycle = (cycle_t)(-1L);
 
