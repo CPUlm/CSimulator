@@ -509,7 +509,7 @@ let end_simul_fun ppf (genv : global_env) =
       fprintf ppf
         "@[<v>/* Restore Screen */@,\
          screen_terminate();@,\
-         printf(\"\\x1b[0J\");@,\
+         printf(\"\\x1b[2J\");@,\
          printf(\"\\x1b[%d;%dH\");@,\
          fflush(stdout);@,\
          @]@,"
