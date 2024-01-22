@@ -427,7 +427,7 @@ let do_cycle_fun ppf (genv : global_env) =
   in
   let () =
     if genv.with_pause then
-      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 1 17
+      fprintf ppf "printf(\"\\x1b[%d;%dH\");@,getchar();@," 19 1
   in
   let () = fprintf ppf "return %s;@]@,}@]@,@," need_stop in
   ()
@@ -457,33 +457,36 @@ let init_ram_fun ppf (genv : global_env) =
   let () =
     fprintf ppf "@[<v>void init_ram(const char *ram_file) {@;<0 4>@[<v>"
   in
-  match genv.ram_var with
-  | None ->
-      ()
-  | Some (_, ram_pp) ->
-      let () =
-        fprintf ppf
-          "if (ram_file == NULL) {@;\
-           <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
-           exit(1);@]@,\
-           } else {@;\
-           <0 4>@[<v>%a = ram_from_file(ram_file);" ram_pp ()
-      in
-      let () =
-        if genv.with_screen then
-          fprintf ppf "@,screen_init_with_ram_mapping(%a);" ram_pp ()
-      in
-      let () =
-        if genv.with_debug then
+  let () =
+    match genv.ram_var with
+    | None ->
+        ()
+    | Some (_, ram_pp) ->
+        let () =
           fprintf ppf
-            "@,\
-             ram_install_read_debugger(%a, %b);@,\
-             ram_install_write_debugger(%a, %b);" ram_pp () genv.with_screen
-            ram_pp () genv.with_screen
-      in
-      let () = fprintf ppf "@]@,}@]" in
-      let () = fprintf ppf "@]@,}@,@," in
-      ()
+            "if (ram_file == NULL) {@;\
+             <0 4>@[<v>fprintf(stdout, \"Error: Expected a RAM File.\\n\");@,\
+             exit(1);@]@,\
+             } else {@;\
+             <0 4>@[<v>%a = ram_from_file(ram_file);" ram_pp ()
+        in
+        let () =
+          if genv.with_screen then
+            fprintf ppf "@,screen_init_with_ram_mapping(%a);" ram_pp ()
+        in
+        let () =
+          if genv.with_debug then
+            fprintf ppf
+              "@,\
+               ram_install_read_debugger(%a, %b);@,\
+               ram_install_write_debugger(%a, %b);" ram_pp () genv.with_screen
+              ram_pp () genv.with_screen
+        in
+        let () = fprintf ppf "@]@,}@]" in
+        ()
+  in
+  let () = fprintf ppf "@]@,}@,@," in
+  ()
 
 let end_simul_fun ppf (genv : global_env) =
   let () =
@@ -509,11 +512,15 @@ let end_simul_fun ppf (genv : global_env) =
       fprintf ppf
         "@[<v>/* Restore Screen */@,\
          screen_terminate();@,\
-         fprintf(stdout,\"\\n\");@]@,"
+         printf(\"\\x1b[2J\");@,\
+         printf(\"\\x1b[%d;%dH\");@,\
+         fflush(stdout);@,\
+         @]@,"
+        1 1
   in
   let () =
     if genv.with_debug then
-      fprintf ppf "@[<v>fprintf(stdout,\"Number of cycle: %%i\\n\", %s);@]@,"
+      fprintf ppf "@[<v>fprintf(stdout,\"Number of cycle: %%lu\\n\", %s);@]@,"
         cycle_id
   in
   let () = fprintf ppf "@]@,}@]@," in
