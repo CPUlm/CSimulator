@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <time.h>
 #include <string.h>
+#include <signal.h>
 
 static time_t last_tick = 0;
 
@@ -17,6 +18,13 @@ void clock_tick(ram_t *ram)
         ram_set(ram, 1024, 1);
         last_tick = current_time;
     }
+}
+
+static volatile int keepRunning = true;
+
+void sig_handler(int _)
+{
+    keepRunning = false;
 }
 
 static char *char_repr[256] = {
@@ -182,6 +190,8 @@ static int strendswith(const char *s, const char *t)
 
 int main(int argc, char **argv)
 {
+    signal(SIGINT, sig_handler);
+
     cycle_t nb_cycle = (cycle_t)(-1L);
 
     const char *ram_file = NULL;
@@ -265,7 +275,7 @@ int main(int argc, char **argv)
     cycle_t curr_cycle = 0;
     do
     {
-    } while (!do_cycle(&curr_cycle) && curr_cycle < nb_cycle);
+    } while (keepRunning && !do_cycle(&curr_cycle) && curr_cycle < nb_cycle);
 
     end_simulation();
     return 0;
