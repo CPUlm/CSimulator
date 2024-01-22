@@ -512,7 +512,7 @@ let end_simul_fun ppf (genv : global_env) =
          printf(\"\\x1b[%d;%dH\\n\");@,\
          fflush(stdout);@,\
          @]@,"
-        18 0
+        10 0
   in
   let () =
     if genv.with_debug then
