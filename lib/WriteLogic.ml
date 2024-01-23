@@ -475,6 +475,10 @@ let init_ram_fun ppf (genv : global_env) =
             fprintf ppf "@,screen_init_with_ram_mapping(%a);" ram_pp ()
         in
         let () =
+          if genv.with_tick then
+            fprintf ppf "@,set_up_time_request(%a);" ram_pp ()
+        in
+        let () =
           if genv.with_debug then
             fprintf ppf
               "@,\

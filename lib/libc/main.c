@@ -20,6 +20,31 @@ void clock_tick(ram_t *ram)
     }
 }
 
+void fill_time_request(ram_t *ram, addr_t addr, word_t word)
+{
+    if (addr == 1025 && word > 0)
+    {
+        // The current time is requested. We fill the
+        // detail in 1028-1033
+        time_t now = time(NULL);
+        struct tm *tm_struct = localtime(&now);
+        ram_set(ram, 1025, 0);                            // We Ack the change
+        ram_set(ram, 1026, 1);                            // We notify the time update
+        ram_set(ram, 1027, tm_struct->tm_sec);            // Seconds
+        ram_set(ram, 1028, tm_struct->tm_min);            // Minutes
+        ram_set(ram, 1029, tm_struct->tm_hour);           // Hours
+        ram_set(ram, 1030, tm_struct->tm_mday);           // Day in Month
+        ram_set(ram, 1031, tm_struct->tm_mon);            // Month
+        ram_set(ram, 1032, tm_struct->tm_year + 1900);    // Year
+        ram_set(ram, 1033, (tm_struct->tm_wday + 6) % 7); // Day in Week
+    }
+}
+
+void set_up_time_request(ram_t *ram)
+{
+    ram_install_write_listener(ram, 1025, 1025, &fill_time_request);
+}
+
 static volatile int keepRunning = true;
 
 void sig_handler(int _)
