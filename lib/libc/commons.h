@@ -19,3 +19,4 @@ void init_ram(const char *ram_file);
 
 void end_simulation();
 void clock_tick(ram_t *ram);
+void set_up_time_request(ram_t *ram);
